@@ -140,6 +140,36 @@ OSApp.Stations.isDisabled = function( sid )  {
 	return OSApp.StationAttributes.getDisabled( sid ) > 0;
 };
 
+OSApp.Stations.isFertigation = function( sid ) {
+	if ( !OSApp.Supported.fertigation() ) return false;
+	var fertStation = OSApp.currentSession.controller.fertigation.fert_station;
+	return fertStation !== undefined && fertStation !== 255 && fertStation === sid;
+};
+
+OSApp.Stations.setFertilizerStations = function( stationId, callback ) {
+	callback = callback || function() {};
+	if ( !OSApp.currentSession.isControllerConnected() ) {
+		callback( false );
+		return;
+	}
+	
+	var url = "/cf?pw=&fs=" + ( stationId === 255 ? "255" : stationId );
+	OSApp.Firmware.sendToOS( url, "json" ).done( function( data ) {
+		if ( data && data.result === 1 ) {
+			// Update cached value
+			if ( !OSApp.currentSession.controller.fertigation ) {
+				OSApp.currentSession.controller.fertigation = {};
+			}
+			OSApp.currentSession.controller.fertigation.fert_station = stationId;
+			callback( true );
+		} else {
+			callback( false );
+		}
+	} ).fail( function() {
+		callback( false );
+	} );
+};
+
 OSApp.Stations.stopAllStations = function() {
 	var session = OSApp.currentSession,
 		controller = session.controller,
@@ -372,6 +402,23 @@ OSApp.Stations.submitRunonce = function( runonce, interval, repeat, annotation, 
 				qo = Number( qo );
 				request += "&qo=" + ( Number.isInteger( qo ) && qo >= 0 && qo <= 2 ? qo : 2 );
 			}
+		}
+
+		// Collect fertigation values and convert % → seconds before sending.
+		// The server (server_change_runonce) expects fd{sid}=seconds.
+		if ( OSApp.Supported.fertigation() ) {
+			$( "#runonce" ).find( "[id^='fert-']" ).each( function() {
+				var fertButton = $( this ),
+					fertId = fertButton.attr( "id" ),
+					sid = parseInt( fertId.split( "-" )[ 1 ], 10 ),
+					fertPercent = parseInt( fertButton.val() || "0", 10 ),
+					stationDur = runonce[ sid ] || 0,
+					fertSeconds = Math.round( stationDur * fertPercent / 100 );
+
+				if ( !isNaN( sid ) && fertSeconds > 0 ) {
+					request += "&fd" + sid + "=" + fertSeconds;
+				}
+			} );
 		}
 
 		OSApp.Firmware.sendToOS( request ).done( function() {

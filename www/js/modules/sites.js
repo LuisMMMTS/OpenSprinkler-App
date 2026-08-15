@@ -1160,6 +1160,10 @@ OSApp.Sites.updateController = function( callback, fail ) {
 				return;
 			}
 
+			// The /ja call does not contain special station data, so let's cache it
+			var special = OSApp.currentSession.controller.special;
+			var fertigation = OSApp.currentSession.controller.fertigation;
+
 			// Merge /ja data into the existing controller object so that cached fields
 			// from separate endpoints (special, sensor_desc, jpaData) are preserved automatically.
 			$.extend( controller, data );
@@ -1171,6 +1175,27 @@ OSApp.Sites.updateController = function( callback, fail ) {
 			if ( !OSApp.Supported.officialSensorAPIAllowed( controller ) ) {
 				delete controller.sensors;
 				delete controller.sensor_desc;
+			}
+
+			// Restore the station cache to the object
+			OSApp.currentSession.controller.special = special;
+
+			// Cache fertigation station from /ja response
+			// The /ja endpoint returns fertigation data in a nested structure: data.fertigation.fert_station
+			// The backend ALWAYS includes fertigation section if it supports it
+			if ( data.fertigation && typeof data.fertigation === "object" && data.fertigation !== null ) {
+				// Backend supports fertigation - cache the data
+				OSApp.currentSession.controller.fertigation = {
+					fert_station: ( data.fertigation.fert_station !== undefined && data.fertigation.fert_station !== null ) ? data.fertigation.fert_station : 255
+				};
+			} else if ( fertigation && typeof fertigation === "object" && fertigation !== null ) {
+				// Restore cached fertigation if not in response (firmware might not support it)
+				OSApp.currentSession.controller.fertigation = fertigation;
+			} else {
+				// If fertigation is not in response, the backend doesn't support it
+				// But since the backend code always includes it, this shouldn't happen
+				// Set to undefined to indicate no support
+				OSApp.currentSession.controller.fertigation = undefined;
 			}
 
 			// Fix the station status array

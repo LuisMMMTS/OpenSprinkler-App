@@ -436,15 +436,34 @@ OSApp.Programs.displayPageRunOnce = function() {
 		}
 		quickPick += "</select>";
 		list += quickPick + "<form>";
+		var fertigationSupported = OSApp.Supported.fertigation();
 		$.each( OSApp.currentSession.controller.stations.snames, function( i ) {
 			if ( OSApp.Stations.isMaster( i ) ) {
 				list += "<div class='ui-field-contain duration-input" + ( OSApp.Stations.isDisabled( i ) ? " station-hidden' style='display:none" : "" ) + "'>" +
 					"<label for='zone-" + i + "'>" + OSApp.Utils.htmlEscape( OSApp.Stations.getName( i ) ) + ":</label>" +
 					"<button disabled='true' data-mini='true' name='zone-" + i + "' id='zone-" + i + "' value='0'>" + OSApp.Language._( "Master" ) + "</button></div>";
-			} else {
+			} else if ( fertigationSupported && OSApp.Stations.isFertigation( i ) ) {
+				// Fertigation station - disabled like master station
 				list += "<div class='ui-field-contain duration-input" + ( OSApp.Stations.isDisabled( i ) ? " station-hidden' style='display:none" : "" ) + "'>" +
 					"<label for='zone-" + i + "'>" + OSApp.Utils.htmlEscape( OSApp.Stations.getName( i ) ) + ":</label>" +
-					"<button data-mini='true' name='zone-" + i + "' id='zone-" + i + "' value='0'>0s</button></div>";
+					"<button disabled='true' data-mini='true' name='zone-" + i + "' id='zone-" + i + "' value='0'>" + OSApp.Language._( "Fertigation" ) + "</button></div>";
+			} else {
+				// Use inline layout to put station duration and fertigation on same line, compact
+				if ( fertigationSupported && !OSApp.Stations.isFertigation( i ) ) {
+					list += "<div class='ui-field-contain duration-input" + ( OSApp.Stations.isDisabled( i ) ? " station-hidden' style='display:none" : "" ) + "'>" +
+						"<label for='zone-" + i + "'>" + OSApp.Utils.htmlEscape( OSApp.Stations.getName( i ) ) + ":</label>" +
+						"<span style='display:inline-block; width:48%; margin-right:2%;'>" +
+							"<button data-mini='true' name='zone-" + i + "' id='zone-" + i + "' value='0' style='width:100%;'>0s</button>" +
+						"</span>" +
+						"<span style='display:inline-block; width:48%;'>" +
+							"<button data-mini='true' name='fert-" + i + "' id='fert-" + i + "' value='0' style='width:100%;' title='" + OSApp.Language._( "Fertigation" ) + "'>0%</button>" +
+						"</span>" +
+						"</div>";
+				} else {
+					list += "<div class='ui-field-contain duration-input" + ( OSApp.Stations.isDisabled( i ) ? " station-hidden' style='display:none" : "" ) + "'>" +
+						"<label for='zone-" + i + "'>" + OSApp.Utils.htmlEscape( OSApp.Stations.getName( i ) ) + ":</label>" +
+						"<button data-mini='true' name='zone-" + i + "' id='zone-" + i + "' value='0'>0s</button></div>";
+				}
 			}
 		} );
 
@@ -652,6 +671,31 @@ OSApp.Programs.displayPageRunOnce = function() {
 				},
 				maximum: 65535,
 				showSun: OSApp.Firmware.checkOSVersion( 214 ) ? true : false
+			} );
+
+			return false;
+		} );
+
+		// Handle fertigation percentage inputs for run-once programs
+		page.find( "[id^='fert-']" ).on( "click", function() {
+			var fert = $( this ),
+				name = page.find( "label[for='" + fert.attr( "id" ) + "']" ).text().slice( 0, -4 ); // Remove " (%):" suffix
+
+			OSApp.UIDom.showSingleDurationInput( {
+				data: fert.val(),
+				title: name,
+				label: OSApp.Language._( "Percentage" ),
+				callback: function( result ) {
+					fert.val( result );
+					fert.text( result + "%" );
+					if ( result > 0 ) {
+						fert.addClass( "green" );
+					} else {
+						fert.removeClass( "green" );
+					}
+				},
+				maximum: 100,
+				minimum: 0
 			} );
 
 			return false;
@@ -1469,7 +1513,25 @@ OSApp.Programs.displayPagePreviewPrograms = function() {
 		var dt = date.getUTCDate();
 		var mt = date.getUTCMonth() + 1;
 		var yr = date.getUTCFullYear();
-		var dr = prog[ 6 ];
+		
+		// Determine format: if fertigation is supported OR index 5 is an array, use new format
+		var drIndex;
+		var useNewFormat = false;
+		if ( OSApp.Supported.fertigation() ) {
+			useNewFormat = true;
+		} else if ( prog[ 5 ] && Array.isArray( prog[ 5 ] ) ) {
+			useNewFormat = true;
+		}
+		
+		if ( useNewFormat ) {
+			// New format: date range at index 7
+			drIndex = 7;
+		} else {
+			// Old format: date range at index 6
+			drIndex = 6;
+		}
+		
+		var dr = prog[ drIndex ];
 		if ( typeof dr === "object" ) { // Daterange is available
 			if ( dr[ 0 ] ) { // Check date range if enabled
 				var currdate = ( mt << 5 ) + dt;
@@ -1921,7 +1983,25 @@ OSApp.Programs.readProgram21 = function( program ) {
 	newdata.is_even = ( restrict === 2 ) ? true : false;
 	newdata.is_odd = ( restrict === 1 ) ? true : false;
 	newdata.stations = program[ 4 ];
-	newdata.name = program[ 5 ];
+	
+	// Determine format: if fertigation is supported OR index 5 is an array, use new format
+	var useNewFormat = false;
+	if ( OSApp.Supported.fertigation() ) {
+		useNewFormat = true;
+	} else if ( program[ 5 ] && Array.isArray( program[ 5 ] ) ) {
+		useNewFormat = true;
+	}
+	
+	if ( useNewFormat ) {
+		// New format: fertigation at index 5, name at index 6
+		newdata.fertigation = program[ 5 ] || [];
+		newdata.name = program[ 6 ] || "";
+	} else {
+		// Old format: name at index 5
+		newdata.name = program[ 5 ] || "";
+		newdata.fertigation = [];
+	}
+	
 	newdata.type = type;
 
 	if ( startType === 0 ) {
@@ -2019,7 +2099,24 @@ OSApp.Programs.pidToName = function( pid ) {
 	} else if ( pid === 254 || pid === 98 ) {
 		pname = OSApp.Language._( "Run-once program" );
 	} else if ( OSApp.Firmware.checkOSVersion( 210 ) && pid <= OSApp.currentSession.controller.programs.pd.length ) {
-		pname = OSApp.currentSession.controller.programs.pd[ pid - 1 ][ 5 ];
+		var prog = OSApp.currentSession.controller.programs.pd[ pid - 1 ];
+		if ( prog ) {
+			// Determine format: if fertigation is supported OR index 5 is an array, use new format
+			var useNewFormat = false;
+			if ( OSApp.Supported.fertigation() ) {
+				useNewFormat = true;
+			} else if ( prog[ 5 ] && Array.isArray( prog[ 5 ] ) ) {
+				useNewFormat = true;
+			}
+			
+			if ( useNewFormat ) {
+				// New format: name at index 6
+				pname = prog[ 6 ] || pname;
+			} else {
+				// Old format: name at index 5
+				pname = prog[ 5 ] || pname;
+			}
+		}
 	}
 
 	return pname;
@@ -2474,18 +2571,51 @@ OSApp.Programs.makeProgram21 = function( n, isCopy ) {
 	var hideDisabled = $( "#programs" ).hasClass( "show-hidden" ) ? "" : "' style='display:none";
 
 	// Show station duration inputs
+	var fertigationSupported = OSApp.Supported.fertigation();
 	for ( j = 0; j < OSApp.currentSession.controller.stations.snames.length; j++ ) {
 		if ( OSApp.Stations.isMaster( j ) ) {
 			list += "<div class='ui-field-contain duration-input" + ( OSApp.Stations.isDisabled( j ) ? " station-hidden" + hideDisabled : "" ) + "'>" +
 				"<label for='station_" + j + "-" + id + "'>" + OSApp.Utils.htmlEscape( OSApp.Stations.getName( j ) ) + ":</label>" +
 				"<button disabled='true' data-mini='true' name='station_" + j + "-" + id + "' id='station_" + j + "-" + id + "' value='0'>" +
 				OSApp.Language._( "Master" ) + "</button></div>";
-		} else {
-			time = program.stations[ j ] || 0;
+		} else if ( fertigationSupported && OSApp.Stations.isFertigation( j ) ) {
+			// Fertigation station - disabled like master station
 			list += "<div class='ui-field-contain duration-input" + ( OSApp.Stations.isDisabled( j ) ? " station-hidden" + hideDisabled : "" ) + "'>" +
 				"<label for='station_" + j + "-" + id + "'>" + OSApp.Utils.htmlEscape( OSApp.Stations.getName( j ) ) + ":</label>" +
-				"<button " + ( time > 0 ? "class='green' " : "" ) + "data-mini='true' name='station_" + j + "-" + id + "' " +
-					"id='station_" + j + "-" + id + "' value='" + time + "'>" + OSApp.Dates.getDurationText( time ) + "</button></div>";
+				"<button disabled='true' data-mini='true' name='station_" + j + "-" + id + "' id='station_" + j + "-" + id + "' value='0'>" +
+				OSApp.Language._( "Fertigation" ) + "</button></div>";
+		} else {
+			time = program.stations[ j ] || 0;
+			// Use inline layout to put station duration and fertigation on same line, compact
+			if ( fertigationSupported && !OSApp.Stations.isFertigation( j ) ) {
+				// Get fertigation value from program data if available
+				// Backend returns fertigation as array of durations in seconds at index 5
+				var fertValue = 0;
+				if ( program.fertigation && Array.isArray( program.fertigation ) && program.fertigation[ j ] !== undefined ) {
+					var fertDuration = parseInt( program.fertigation[ j ] || "0", 10 );
+					// Convert seconds to percentage based on station duration
+					if ( fertDuration > 0 && time > 0 ) {
+						fertValue = Math.round( ( fertDuration * 100 ) / time );
+						if ( fertValue > 100 ) fertValue = 100; // Cap at 100%
+					}
+				}
+				list += "<div class='ui-field-contain duration-input" + ( OSApp.Stations.isDisabled( j ) ? " station-hidden" + hideDisabled : "" ) + "'>" +
+					"<label for='station_" + j + "-" + id + "'>" + OSApp.Utils.htmlEscape( OSApp.Stations.getName( j ) ) + ":</label>" +
+					"<span style='display:inline-block; width:48%; margin-right:2%;'>" +
+						"<button " + ( time > 0 ? "class='green' " : "" ) + "data-mini='true' name='station_" + j + "-" + id + "' " +
+							"id='station_" + j + "-" + id + "' value='" + time + "' style='width:100%;'>" + OSApp.Dates.getDurationText( time ) + "</button>" +
+					"</span>" +
+					"<span style='display:inline-block; width:48%;'>" +
+						"<button " + ( fertValue > 0 ? "class='green' " : "" ) + "data-mini='true' name='fert-" + j + "-" + id + "' " +
+							"id='fert-" + j + "-" + id + "' value='" + fertValue + "' style='width:100%;' title='" + OSApp.Language._( "Fertigation" ) + "'>" + fertValue + "%</button>" +
+					"</span>" +
+					"</div>";
+			} else {
+				list += "<div class='ui-field-contain duration-input" + ( OSApp.Stations.isDisabled( j ) ? " station-hidden" + hideDisabled : "" ) + "'>" +
+					"<label for='station_" + j + "-" + id + "'>" + OSApp.Utils.htmlEscape( OSApp.Stations.getName( j ) ) + ":</label>" +
+					"<button " + ( time > 0 ? "class='green' " : "" ) + "data-mini='true' name='station_" + j + "-" + id + "' " +
+						"id='station_" + j + "-" + id + "' value='" + time + "'>" + OSApp.Dates.getDurationText( time ) + "</button></div>";
+			}
 		}
 	}
 
@@ -2893,6 +3023,35 @@ OSApp.Programs.makeProgram21 = function( n, isCopy ) {
 			maximum: 65535,
 			showSun: OSApp.Firmware.checkOSVersion( 214 ) ? true : false
 		} );
+	} );
+
+	// Handle fertigation percentage inputs for regular programs
+	page.find( "[id^='fert-']" ).filter( function() {
+		return $( this ).attr( "id" ).indexOf( "-" + id ) !== -1;
+	} ).on( "click", function() {
+		var fert = $( this ),
+			parts = fert.attr( "id" ).split( "-" ),
+			sid = parseInt( parts[ 1 ], 10 ),
+			name = OSApp.Stations.getName( sid );
+
+		OSApp.UIDom.showSingleDurationInput( {
+			data: fert.val(),
+			title: name + " - " + OSApp.Language._( "Fertigation" ),
+			label: OSApp.Language._( "Percentage" ),
+			callback: function( result ) {
+				fert.val( result );
+				fert.text( result + "%" );
+				if ( result > 0 ) {
+					fert.addClass( "green" );
+				} else {
+					fert.removeClass( "green" );
+				}
+			},
+			maximum: 100,
+			minimum: 0
+		} );
+
+		return false;
 	} );
 
 	OSApp.UIDom.fixInputClick( page );
@@ -3333,6 +3492,37 @@ OSApp.Programs.submitProgram21 = function( id, ignoreWarning ) {
 	program[ 2 ] = days[ 1 ];
 	program[ 3 ] = start;
 	program[ 4 ] = runTimes;
+	
+	// Add fertigation array at index 5 (empty array if fertigation not supported or not configured)
+	// Backend expects fertigation array as simple array of durations in seconds
+	var fertigationArray = [];
+	if ( OSApp.Supported.fertigation() ) {
+		// Build fertigation array from UI
+		var nstations = OSApp.currentSession.controller.stations.snames.length;
+		for ( i = 0; i < nstations; i++ ) {
+			// Check if fertigation UI element exists (fert-{i}-{id} button)
+			var fertButton = $( "#fert-" + i + "-" + id );
+			if ( fertButton.length > 0 ) {
+				var fertPercent = parseInt( fertButton.val() || "0", 10 );
+				var fertDuration = 0;
+				
+				// Convert percentage to seconds based on station duration
+				if ( fertPercent > 0 && runTimes[ i ] > 0 ) {
+					// Calculate station duration in seconds (runTimes[i] is already in seconds)
+					var stationDur = runTimes[ i ];
+					// Convert percentage to seconds
+					fertDuration = Math.round( ( stationDur * fertPercent ) / 100 );
+				}
+				
+				// Backend expects simple array of durations in seconds
+				fertigationArray.push( fertDuration );
+			} else {
+				// No fertigation UI - send 0
+				fertigationArray.push( 0 );
+			}
+		}
+	}
+	program[ 5 ] = fertigationArray;
 
 	name = $( "#name-" + id ).val();
 

@@ -89,11 +89,19 @@ OSApp.Dashboard.displayPage = function() {
 				( OSApp.Stations.isSpecial( sid ) ? "" : "hidden" ) + "'></span>";
 
 			if ( OSApp.Supported.groups() ) {
-				cards += "<span class='btn-no-border ui-btn card-icon station-gid " + ( OSApp.Stations.isMaster( sid ) ? "hidden" : "" ) +
+				cards += "<span class='btn-no-border ui-btn card-icon station-gid " + ( ( OSApp.Stations.isMaster( sid ) || ( OSApp.Supported.fertigation() && OSApp.Stations.isFertigation( sid ) ) ) ? "hidden" : "" ) +
 					"'>" + OSApp.Groups.mapGIDValueToName( OSApp.Stations.getGIDValue( sid ) ) + "</span>";
 			}
 
-			cards += "<span class='btn-no-border ui-btn " + ( ( OSApp.Stations.isMaster( sid ) ) ? "ui-icon-master" : "ui-icon-gear" ) +
+			// Use fertigation icon for settings if it's a fertigation station, master icon if master, otherwise gear icon
+			var settingsIconClass = "ui-icon-gear";
+			if ( OSApp.Stations.isMaster( sid ) ) {
+				settingsIconClass = "ui-icon-master";
+			} else if ( OSApp.Supported.fertigation() && OSApp.Stations.isFertigation( sid ) ) {
+				settingsIconClass = "ui-icon-fertigation";
+			}
+
+			cards += "<span class='btn-no-border ui-btn " + settingsIconClass +
 				" card-icon ui-btn-icon-notext station-settings' data-station='" + sid + "' id='attrib-" + sid + "' " +
 				( OSApp.Supported.master( OSApp.Constants.options.MASTER_STATION_1 ) ? ( "data-um='" + ( OSApp.StationAttributes.getMasterOperation( sid, OSApp.Constants.options.MASTER_STATION_1 ) ) + "' " ) : "" ) +
 				( OSApp.Supported.master( OSApp.Constants.options.MASTER_STATION_2 ) ? ( "data-um2='" + ( OSApp.StationAttributes.getMasterOperation( sid, OSApp.Constants.options.MASTER_STATION_2 ) ) + "' " ) : "" ) +
@@ -111,7 +119,9 @@ OSApp.Dashboard.displayPage = function() {
 				( OSApp.Supported.groups() ? ( "data-gid='" + OSApp.Stations.getGIDValue( sid ) + "' " ) : "" ) +
 				"></span>";
 
-			if ( !OSApp.Stations.isMaster( sid ) ) {
+			// Don't show status line for master or fertigation stations
+			var isFertigationStation = OSApp.Supported.fertigation() && OSApp.Stations.isFertigation( sid );
+			if ( !OSApp.Stations.isMaster( sid ) && !isFertigationStation ) {
 				if ( isScheduled || isRunning ) {
 
 					// Generate status line for station
@@ -408,7 +418,8 @@ OSApp.Dashboard.displayPage = function() {
 				( typeof sites[ currentSite ].images[ sid ] !== "string" ? OSApp.Language._( "Add" ) : OSApp.Language._( "Change" ) ) + " " + OSApp.Language._( "Image" ) +
 				"</button>";
 
-			if ( !OSApp.Stations.isMaster( sid ) ) {
+			var isFertigationStation = OSApp.Supported.fertigation() && OSApp.Stations.isFertigation( sid );
+			if ( !OSApp.Stations.isMaster( sid ) && !isFertigationStation ) {
 				var hasAdditionalMaster =
 					OSApp.Supported.master( OSApp.Constants.options.MASTER_STATION_2 ) ||
 					OSApp.Supported.master( OSApp.Constants.options.MASTER_STATION_3 ) ||
@@ -498,7 +509,7 @@ OSApp.Dashboard.displayPage = function() {
 			select += "<div id='tab-advanced' class='tab-content'>";
 
 			// Create sequential group selection menu
-			if ( OSApp.Supported.groups() && !OSApp.Stations.isMaster( sid ) ) {
+			if ( OSApp.Supported.groups() && !OSApp.Stations.isMaster( sid ) && !isFertigationStation ) {
 				select +=
 					"<div class='ui-bar-a ui-bar seq-container'>" + OSApp.Language._( "Sequential Group" ) + ":</div>" +
 					"<select id='gid' class='seqgrp' data-mini='true'></select>" +
@@ -1024,11 +1035,17 @@ OSApp.Dashboard.displayPage = function() {
 
 					card.find( "#station_" + sid ).text( OSApp.Stations.getName( sid) );
 					card.find( ".special-station" ).removeClass( "hidden" ).addClass( OSApp.Stations.isSpecial( sid ) ? "" : "hidden" );
+					
 					card.find( ".station-status" ).removeClass( "on off wait" ).addClass( isRunning ? "on" : ( isScheduled ? "wait" : "off" ) );
+					
+					// Update settings icon based on station type
+					var isFertigationStation = OSApp.Supported.fertigation() && OSApp.Stations.isFertigation( sid );
 					if ( OSApp.Stations.isMaster( sid ) ) {
-						card.find( ".station-settings" ).removeClass( "ui-icon-gear" ).addClass( "ui-icon-master" );
+						card.find( ".station-settings" ).removeClass( "ui-icon-gear ui-icon-fertigation" ).addClass( "ui-icon-master" );
+					} else if ( isFertigationStation ) {
+						card.find( ".station-settings" ).removeClass( "ui-icon-gear ui-icon-master" ).addClass( "ui-icon-fertigation" );
 					} else {
-						card.find( ".station-settings" ).removeClass( "ui-icon-master" ).addClass( "ui-icon-gear" );
+						card.find( ".station-settings" ).removeClass( "ui-icon-master ui-icon-fertigation" ).addClass( "ui-icon-gear" );
 					}
 
 					card.find( ".station-settings" ).data( {
@@ -1048,7 +1065,7 @@ OSApp.Dashboard.displayPage = function() {
 						gid: OSApp.Supported.groups() ? OSApp.Stations.getGIDValue( sid ) : undefined
 					} );
 
-					if ( !OSApp.Stations.isMaster( sid ) && ( isScheduled || isRunning ) ) {
+					if ( !OSApp.Stations.isMaster( sid ) && !isFertigationStation && ( isScheduled || isRunning ) ) {
 						var escapedPname = OSApp.Utils.htmlEscape( pname );
 						line = ( isRunning ? OSApp.Language._( "Running" ) + " " + escapedPname : OSApp.Language._( "Scheduled" ) + " " +
 							( OSApp.Stations.getStartTime( sid ) ? OSApp.Language._( "for" ) + " " + OSApp.Dates.dateToString( new Date( OSApp.Stations.getStartTime( sid ) * 1000 ) ) : escapedPname ) );
@@ -1161,7 +1178,8 @@ OSApp.Dashboard.displayPage = function() {
 				name = OSApp.Stations.getName( sid ),
 				question, dialogOptions = {};
 
-			if ( OSApp.Stations.isMaster( sid ) ) {
+			var isFertigationStation = OSApp.Supported.fertigation() && OSApp.Stations.isFertigation( sid );
+			if ( OSApp.Stations.isMaster( sid ) || isFertigationStation ) {
 				return false;
 			}
 

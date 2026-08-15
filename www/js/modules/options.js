@@ -430,12 +430,35 @@ OSApp.Options.showOptions = function( expandItem ) {
 
 			$.mobile.loading( "show" );
 
+			// Handle fertigation station separately if supported
+			var fertStationId = null;
+			if ( OSApp.Supported && OSApp.Supported.fertigation && OSApp.Supported.fertigation() ) {
+				var fertStationSelect = page.find( "#fertilizer-station-1" );
+				if ( fertStationSelect.length ) {
+					fertStationId = parseInt( fertStationSelect.val(), 10 );
+				}
+			}
+
 			OSApp.Firmware.sendToOS( "/co?pw=&" + $.param( opt ) ).done( function() {
-				$.mobile.document.one( "pageshow", function() {
-					OSApp.Errors.showError( OSApp.Language._( "Settings have been saved" ) );
-				} );
-				OSApp.UIDom.goBack();
-				OSApp.Sites.updateController( OSApp.Weather.updateWeather );
+				// Save fertigation station if configured
+				if ( fertStationId !== null ) {
+					OSApp.Stations.setFertilizerStations( fertStationId, function( success ) {
+						if ( !success ) {
+							OSApp.Errors.showError( OSApp.Language._( "Error saving fertigation station" ) );
+						}
+						$.mobile.document.one( "pageshow", function() {
+							OSApp.Errors.showError( OSApp.Language._( "Settings have been saved" ) );
+						} );
+						OSApp.UIDom.goBack();
+						OSApp.Sites.updateController( OSApp.Weather.updateWeather );
+					} );
+				} else {
+					$.mobile.document.one( "pageshow", function() {
+						OSApp.Errors.showError( OSApp.Language._( "Settings have been saved" ) );
+					} );
+					OSApp.UIDom.goBack();
+					OSApp.Sites.updateController( OSApp.Weather.updateWeather );
+				}
 			} ).fail( function() {
 				$.mobile.loading( "hide" );
 				button.prop( "disabled", false );
@@ -574,6 +597,36 @@ OSApp.Options.showOptions = function( expandItem ) {
 	list += renderMasterButton( 2, "mas2", "mton2", "mtof2" );
 	list += renderMasterButton( 3, "mas3", "mton3", "mtof3" );
 	list += renderMasterButton( 4, "mas4", "mton4", "mtof4" );
+
+	// Add fertigation station configuration
+	// Always show fertigation selector - backend will handle unsupported cases
+	var currentFertStation = 255; // Default to "not configured"
+	if ( OSApp.currentSession && OSApp.currentSession.controller && OSApp.currentSession.controller.fertigation && OSApp.currentSession.controller.fertigation.fert_station !== undefined ) {
+		currentFertStation = OSApp.currentSession.controller.fertigation.fert_station;
+	}
+	
+	var stationCount = 0;
+	if ( OSApp.currentSession && OSApp.currentSession.controller && OSApp.currentSession.controller.stations && OSApp.currentSession.controller.stations.snames ) {
+		stationCount = OSApp.currentSession.controller.stations.snames.length;
+	}
+	
+	list += "<hr style='width:95%' class='content-divider'>";
+	list += "<div class='ui-field-contain ui-field-no-border'><label for='fertilizer-station-1' class='select'>" +
+			OSApp.Language._( "Fertigation Station" ) +
+		"</label><select data-mini='true' id='fertilizer-station-1'><option value='255'" + ( currentFertStation === 255 ? " selected" : "" ) + ">" + OSApp.Language._( "None" ) + "</option>";
+
+	if ( stationCount > 0 ) {
+		for ( i = 0; i < stationCount; i++ ) {
+			if ( !OSApp.Stations.isMaster( i ) ) { // Don't allow master stations as fertigation stations
+				var stationName = OSApp.Stations.getName( i );
+				list += "<option " + ( currentFertStation === i ? "selected" : "" ) + " value='" + i + "'>" +
+					stationName + "</option>";
+			}
+		}
+	} else {
+		list += "<option value='0'>No stations available</option>";
+	}
+	list += "</select></div>";
 
 	list += "</fieldset><fieldset data-role='collapsible'" +
 		( typeof expandItem === "string" && expandItem === "station" ? " data-collapsed='false'" : "" ) + "><legend>" +
