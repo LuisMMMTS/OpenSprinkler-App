@@ -28,34 +28,18 @@ OSApp.Dates.getDateRange = function( pid ) {
 	if ( pid === "new" ) {
 		return [ 0, OSApp.Dates.Constants.minEncodedDate, OSApp.Dates.Constants.maxEncodedDate ];
 	}
-	
+
 	var prog = OSApp.currentSession.controller.programs.pd[ pid ];
 	if ( !prog ) {
 		return [ 0, OSApp.Dates.Constants.minEncodedDate, OSApp.Dates.Constants.maxEncodedDate ];
 	}
-	
-	// Determine format: if fertigation is supported OR index 5 is an array, use new format
-	var drIndex;
-	var useNewFormat = false;
-	if ( OSApp.Supported && OSApp.Supported.fertigation && OSApp.Supported.fertigation() ) {
-		useNewFormat = true;
-	} else if ( prog[ 5 ] && Array.isArray( prog[ 5 ] ) ) {
-		useNewFormat = true;
-	}
-	
-	if ( useNewFormat ) {
-		// New format: date range at index 7
-		drIndex = 7;
-	} else {
-		// Old format: date range at index 6
-		drIndex = 6;
-	}
-	
-	var dr = prog[ drIndex ];
-	if ( !dr || !Array.isArray( dr ) ) {
+
+	// The fertigation array at index 5 pushes the date range from 6 to 7.
+	var dr = prog[ OSApp.Programs.hasFertigationArray( prog ) ? 7 : 6 ];
+	if ( !Array.isArray( dr ) ) {
 		return [ 0, OSApp.Dates.Constants.minEncodedDate, OSApp.Dates.Constants.maxEncodedDate ];
 	}
-	
+
 	return dr;
 };
 

@@ -112,12 +112,9 @@ OSApp.Supported.restrictions = function() {
 	return wto && OSApp.Firmware.checkOSVersion( 2213 );
 };
 
+// The firmware reports fertigation support by including a "fertigation" object
+// in /ja. Absent object means the controller does not support it.
 OSApp.Supported.fertigation = function() {
-	// Check if fertigation is supported by checking if fertigation object exists in controller data
-	// The backend includes fertigation data in /ja response if supported
-	if ( !OSApp.currentSession || !OSApp.currentSession.controller ) {
-		return false;
-	}
-	var fertigation = OSApp.currentSession.controller.fertigation;
-	return fertigation !== undefined && fertigation !== null && typeof fertigation === "object";
+	var fertigation = OSApp.currentSession?.controller?.fertigation;
+	return typeof fertigation === "object" && fertigation !== null;
 };

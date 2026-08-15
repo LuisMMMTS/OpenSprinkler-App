@@ -143,7 +143,10 @@ OSApp.Stations.isDisabled = function( sid )  {
 OSApp.Stations.isFertigation = function( sid ) {
 	if ( !OSApp.Supported.fertigation() ) return false;
 	var fertStation = OSApp.currentSession.controller.fertigation.fert_station;
-	return fertStation !== undefined && fertStation !== 255 && fertStation === sid;
+
+	// 255 is the unconfigured sentinel, so it must never match — including when
+	// asked about station 255 itself.
+	return fertStation !== 255 && fertStation === sid;
 };
 
 OSApp.Stations.setFertilizerStations = function( stationId, callback ) {
@@ -152,7 +155,7 @@ OSApp.Stations.setFertilizerStations = function( stationId, callback ) {
 		callback( false );
 		return;
 	}
-	
+
 	var url = "/cf?pw=&fs=" + ( stationId === 255 ? "255" : stationId );
 	OSApp.Firmware.sendToOS( url, "json" ).done( function( data ) {
 		if ( data && data.result === 1 ) {

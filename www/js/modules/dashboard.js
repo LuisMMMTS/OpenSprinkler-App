@@ -1035,9 +1035,9 @@ OSApp.Dashboard.displayPage = function() {
 
 					card.find( "#station_" + sid ).text( OSApp.Stations.getName( sid) );
 					card.find( ".special-station" ).removeClass( "hidden" ).addClass( OSApp.Stations.isSpecial( sid ) ? "" : "hidden" );
-					
+
 					card.find( ".station-status" ).removeClass( "on off wait" ).addClass( isRunning ? "on" : ( isScheduled ? "wait" : "off" ) );
-					
+
 					// Update settings icon based on station type
 					var isFertigationStation = OSApp.Supported.fertigation() && OSApp.Stations.isFertigation( sid );
 					if ( OSApp.Stations.isMaster( sid ) ) {

@@ -343,6 +343,15 @@ OSApp.Programs.displayPageManual = function() {
 	return begin();
 };
 
+// A program entry carries the fertigation array at index 5, which pushes the
+// name to 6 and the date range to 7. Stock firmware has the name at index 5.
+// The array itself is the reliable signal: OSApp.Supported.fertigation()
+// describes the controller, not the payload in hand, so it can disagree with
+// a program object that was cached before the controller finished loading.
+OSApp.Programs.hasFertigationArray = function( prog ) {
+	return Array.isArray( prog && prog[ 5 ] );
+};
+
 OSApp.Programs.displayPageRunOnce = function() {
 	// Runonce functions
 	var page = $( "<div data-role='page' id='runonce'>" +
@@ -448,8 +457,8 @@ OSApp.Programs.displayPageRunOnce = function() {
 					"<label for='zone-" + i + "'>" + OSApp.Utils.htmlEscape( OSApp.Stations.getName( i ) ) + ":</label>" +
 					"<button disabled='true' data-mini='true' name='zone-" + i + "' id='zone-" + i + "' value='0'>" + OSApp.Language._( "Fertigation" ) + "</button></div>";
 			} else {
-				// Use inline layout to put station duration and fertigation on same line, compact
-				if ( fertigationSupported && !OSApp.Stations.isFertigation( i ) ) {
+				// Zone station: duration and fertigation share one line
+				if ( fertigationSupported ) {
 					list += "<div class='ui-field-contain duration-input" + ( OSApp.Stations.isDisabled( i ) ? " station-hidden' style='display:none" : "" ) + "'>" +
 						"<label for='zone-" + i + "'>" + OSApp.Utils.htmlEscape( OSApp.Stations.getName( i ) ) + ":</label>" +
 						"<span style='display:inline-block; width:48%; margin-right:2%;'>" +
@@ -679,11 +688,11 @@ OSApp.Programs.displayPageRunOnce = function() {
 		// Handle fertigation percentage inputs for run-once programs
 		page.find( "[id^='fert-']" ).on( "click", function() {
 			var fert = $( this ),
-				name = page.find( "label[for='" + fert.attr( "id" ) + "']" ).text().slice( 0, -4 ); // Remove " (%):" suffix
+				sid = parseInt( fert.attr( "id" ).split( "-" )[ 1 ], 10 );
 
 			OSApp.UIDom.showSingleDurationInput( {
 				data: fert.val(),
-				title: name,
+				title: OSApp.Stations.getName( sid ) + " - " + OSApp.Language._( "Fertigation" ),
 				label: OSApp.Language._( "Percentage" ),
 				callback: function( result ) {
 					fert.val( result );
@@ -1513,25 +1522,8 @@ OSApp.Programs.displayPagePreviewPrograms = function() {
 		var dt = date.getUTCDate();
 		var mt = date.getUTCMonth() + 1;
 		var yr = date.getUTCFullYear();
-		
-		// Determine format: if fertigation is supported OR index 5 is an array, use new format
-		var drIndex;
-		var useNewFormat = false;
-		if ( OSApp.Supported.fertigation() ) {
-			useNewFormat = true;
-		} else if ( prog[ 5 ] && Array.isArray( prog[ 5 ] ) ) {
-			useNewFormat = true;
-		}
-		
-		if ( useNewFormat ) {
-			// New format: date range at index 7
-			drIndex = 7;
-		} else {
-			// Old format: date range at index 6
-			drIndex = 6;
-		}
-		
-		var dr = prog[ drIndex ];
+
+		var dr = prog[ OSApp.Programs.hasFertigationArray( prog ) ? 7 : 6 ];
 		if ( typeof dr === "object" ) { // Daterange is available
 			if ( dr[ 0 ] ) { // Check date range if enabled
 				var currdate = ( mt << 5 ) + dt;
@@ -1983,25 +1975,15 @@ OSApp.Programs.readProgram21 = function( program ) {
 	newdata.is_even = ( restrict === 2 ) ? true : false;
 	newdata.is_odd = ( restrict === 1 ) ? true : false;
 	newdata.stations = program[ 4 ];
-	
-	// Determine format: if fertigation is supported OR index 5 is an array, use new format
-	var useNewFormat = false;
-	if ( OSApp.Supported.fertigation() ) {
-		useNewFormat = true;
-	} else if ( program[ 5 ] && Array.isArray( program[ 5 ] ) ) {
-		useNewFormat = true;
-	}
-	
-	if ( useNewFormat ) {
-		// New format: fertigation at index 5, name at index 6
-		newdata.fertigation = program[ 5 ] || [];
+
+	if ( OSApp.Programs.hasFertigationArray( program ) ) {
+		newdata.fertigation = program[ 5 ];
 		newdata.name = program[ 6 ] || "";
 	} else {
-		// Old format: name at index 5
-		newdata.name = program[ 5 ] || "";
 		newdata.fertigation = [];
+		newdata.name = program[ 5 ] || "";
 	}
-	
+
 	newdata.type = type;
 
 	if ( startType === 0 ) {
@@ -2101,21 +2083,7 @@ OSApp.Programs.pidToName = function( pid ) {
 	} else if ( OSApp.Firmware.checkOSVersion( 210 ) && pid <= OSApp.currentSession.controller.programs.pd.length ) {
 		var prog = OSApp.currentSession.controller.programs.pd[ pid - 1 ];
 		if ( prog ) {
-			// Determine format: if fertigation is supported OR index 5 is an array, use new format
-			var useNewFormat = false;
-			if ( OSApp.Supported.fertigation() ) {
-				useNewFormat = true;
-			} else if ( prog[ 5 ] && Array.isArray( prog[ 5 ] ) ) {
-				useNewFormat = true;
-			}
-			
-			if ( useNewFormat ) {
-				// New format: name at index 6
-				pname = prog[ 6 ] || pname;
-			} else {
-				// Old format: name at index 5
-				pname = prog[ 5 ] || pname;
-			}
+			pname = ( OSApp.Programs.hasFertigationArray( prog ) ? prog[ 6 ] : prog[ 5 ] ) || pname;
 		}
 	}
 
@@ -2586,8 +2554,8 @@ OSApp.Programs.makeProgram21 = function( n, isCopy ) {
 				OSApp.Language._( "Fertigation" ) + "</button></div>";
 		} else {
 			time = program.stations[ j ] || 0;
-			// Use inline layout to put station duration and fertigation on same line, compact
-			if ( fertigationSupported && !OSApp.Stations.isFertigation( j ) ) {
+			// Zone station: duration and fertigation share one line
+			if ( fertigationSupported ) {
 				// Get fertigation value from program data if available
 				// Backend returns fertigation as array of durations in seconds at index 5
 				var fertValue = 0;
@@ -3492,37 +3460,27 @@ OSApp.Programs.submitProgram21 = function( id, ignoreWarning ) {
 	program[ 2 ] = days[ 1 ];
 	program[ 3 ] = start;
 	program[ 4 ] = runTimes;
-	
-	// Add fertigation array at index 5 (empty array if fertigation not supported or not configured)
-	// Backend expects fertigation array as simple array of durations in seconds
-	var fertigationArray = [];
+
+	// Fertigation durations (seconds), one per station, at index 5.
+	//
+	// Only append this when the controller supports it. Sending an empty array
+	// is not a safe "no fertigation" signal: the firmware's parser sees the '['
+	// and then consumes one character per station looking for values, running
+	// off the end of the payload. Omitting index 5 entirely is what stock
+	// firmware expects anyway.
 	if ( OSApp.Supported.fertigation() ) {
-		// Build fertigation array from UI
-		var nstations = OSApp.currentSession.controller.stations.snames.length;
-		for ( i = 0; i < nstations; i++ ) {
-			// Check if fertigation UI element exists (fert-{i}-{id} button)
-			var fertButton = $( "#fert-" + i + "-" + id );
-			if ( fertButton.length > 0 ) {
-				var fertPercent = parseInt( fertButton.val() || "0", 10 );
-				var fertDuration = 0;
-				
-				// Convert percentage to seconds based on station duration
-				if ( fertPercent > 0 && runTimes[ i ] > 0 ) {
-					// Calculate station duration in seconds (runTimes[i] is already in seconds)
-					var stationDur = runTimes[ i ];
-					// Convert percentage to seconds
-					fertDuration = Math.round( ( stationDur * fertPercent ) / 100 );
-				}
-				
-				// Backend expects simple array of durations in seconds
-				fertigationArray.push( fertDuration );
-			} else {
-				// No fertigation UI - send 0
-				fertigationArray.push( 0 );
+		var fertigationArray = [];
+		for ( i = 0; i < OSApp.currentSession.controller.stations.snames.length; i++ ) {
+			var fertPercent = parseInt( $( "#fert-" + i + "-" + id ).val() || "0", 10 ),
+				fertDuration = 0;
+
+			if ( fertPercent > 0 && runTimes[ i ] > 0 ) {
+				fertDuration = Math.round( ( runTimes[ i ] * fertPercent ) / 100 );
 			}
+			fertigationArray.push( fertDuration );
 		}
+		program[ 5 ] = fertigationArray;
 	}
-	program[ 5 ] = fertigationArray;
 
 	name = $( "#name-" + id ).val();
 
