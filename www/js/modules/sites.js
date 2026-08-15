@@ -1220,6 +1220,15 @@ OSApp.Sites.updateController = function( callback, fail ) {
 			OSApp.Sites.updateControllerOptions( undefined, context ),
 			OSApp.Sites.updateControllerStatus( undefined, context ),
 			OSApp.Sites.updateControllerSettings( undefined, context ),
+
+			// The fertigation station is only in /ja, and this branch never
+			// calls it, so without this the whole fertigation UI disappears
+			// whenever the app is loaded from its own host rather than served
+			// by the controller. Tolerates 404 for firmware without /jf.
+			allowMissingSensorEndpoint(
+				OSApp.Sites.updateControllerFertigation( undefined, context ),
+				function() { delete controller.fertigation; }
+			),
 		).then( function() {
 			if ( !isCurrentContext() ) {
 				return;
@@ -1583,6 +1592,29 @@ OSApp.Sites.updateControllerSensors = function( callback, expectedContext ) {
 			return sensors;
 		} );
 	}
+};
+
+OSApp.Sites.updateControllerFertigation = function( callback, expectedContext ) {
+	callback = callback || function() {};
+	var context = getSiteControllerContext( expectedContext ),
+		controller = context.controller;
+
+	return OSApp.Firmware.sendToOS( "/jf?pw=", "json" ).then( function( data ) {
+		if ( !isSiteControllerContextCurrent( context ) ) {
+			return rejectStaleSiteControllerRefresh();
+		}
+
+		// Absent or malformed means no support: leave the key off entirely so
+		// OSApp.Supported.fertigation() reports false instead of throwing.
+		if ( data && typeof data.fert_station !== "undefined" ) {
+			controller.fertigation = { fert_station: data.fert_station };
+		} else {
+			delete controller.fertigation;
+		}
+
+		callback();
+		return controller.fertigation;
+	} );
 };
 
 OSApp.Sites.updateControllerSensorDescription = function( callback, expectedContext ) {
