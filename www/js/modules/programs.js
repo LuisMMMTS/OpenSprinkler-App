@@ -3470,10 +3470,10 @@ OSApp.Programs.submitProgram21 = function( id, ignoreWarning ) {
 	program[ 3 ] = start;
 	program[ 4 ] = runTimes;
 
-	// Fertigation durations go in a separate "pf" parameter, not inside v=, so
-	// v= stays byte-identical to what the stock UI sends and a stock controller
-	// simply ignores it. Only sent when the controller supports fertigation.
-	var fertParam = "";
+	// Fertigation durations travel inside v=, right after the station durations,
+	// so they are saved in the same atomic request and can never be dropped --
+	// exactly like the durations themselves. Only added when the controller
+	// supports fertigation.
 	if ( OSApp.Supported.fertigation() ) {
 		var fertigationArray = [];
 		for ( i = 0; i < OSApp.currentSession.controller.stations.snames.length; i++ ) {
@@ -3483,7 +3483,7 @@ OSApp.Programs.submitProgram21 = function( id, ignoreWarning ) {
 			if ( fertSeconds > runTimes[ i ] ) { fertSeconds = runTimes[ i ]; }
 			fertigationArray.push( fertSeconds );
 		}
-		fertParam = "&pf=" + encodeURIComponent( "[" + fertigationArray.join( "," ) + "]" );
+		program[ 5 ] = fertigationArray;
 	}
 
 	name = $( "#name-" + id ).val();
@@ -3506,7 +3506,7 @@ OSApp.Programs.submitProgram21 = function( id, ignoreWarning ) {
 		}
 	}
 
-	url = "&v=" + JSON.stringify( program ) + "&name=" + encodeURIComponent( name ) + fertParam;
+	url = "&v=" + JSON.stringify( program ) + "&name=" + encodeURIComponent( name );
 
     if ( OSApp.Supported.sensors() ) {
         try {

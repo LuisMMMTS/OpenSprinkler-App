@@ -4,9 +4,10 @@
 // before: the earlier suite only built program arrays by hand and read them
 // back. This renders the actual editor with makeProgram21, fills the real
 // fields, and drives submitProgram21 -- the exact code the Save button runs --
-// asserting the fertigation percentage lands as seconds in the pf parameter
-// and the name is sent as the name param. A regression here is what
-// makes a saved program come back with the wrong name.
+// asserting the fertigation lands as seconds inside v= (right after the
+// durations, so it is saved atomically with them) and the name is sent as the
+// name param. A regression here is what makes a saved program come back with
+// the wrong name or lose its fertigation.
 
 describe("Fertigation Program Save Checks", function () {
 	var controller;
@@ -77,7 +78,7 @@ describe("Fertigation Program Save Checks", function () {
 			"the name field shows the stored name" );
 	});
 
-	it("saves the name in name= and the fertigation as seconds in the pf parameter", function () {
+	it("saves the name in name= and the fertigation as seconds inside v=", function () {
 		var sent = [];
 		sandbox.stub( OSApp.Firmware, "sendToOS" ).callsFake( function ( dest ) {
 			if ( String( dest ).indexOf( "/cp" ) === 0 ) { sent.push( decodeURIComponent( dest ) ); }
@@ -99,17 +100,16 @@ describe("Fertigation Program Save Checks", function () {
 		var req = sent[ sent.length - 1 ];
 
 		assert.include( req, "name=Renamed", "the name is sent as the name param" );
+		assert.isNull( req.match( /[?&]pf=/ ), "no separate pf parameter is sent" );
 
 		var v = ( req.match( /[?&]v=([^&]*)/ ) || [ , "" ] )[ 1 ];
 		var parsed = JSON.parse( v );
-		// v = [flag, days0, days1, [starttimes], [durations]] -- stock-compatible,
-		// with no fertigation inside it
-		assert.equal( parsed.length, 5, "v carries no fertigation (stock-compatible)" );
-		assert.deepEqual( parsed[ 4 ], [ 600, 0, 0 ], "durations preserved at index 4" );
-
-		// fertigation travels in the pf parameter; 20% of 600s = 120s
-		var pf = decodeURIComponent( ( req.match( /[?&]pf=([^&]*)/ ) || [ , "" ] )[ 1 ] );
-		assert.deepEqual( JSON.parse( pf ), [ 120, 0, 0 ], "fertigation seconds sent in pf" );
+		// v = [flag, days0, days1, [starttimes], [durations], [fertigation]] --
+		// fertigation rides inside v=, right after the durations, so it is saved
+		// atomically with them and can never be dropped.
+		assert.equal( parsed.length, 6, "v carries the fertigation array at index 5" );
+		assert.deepEqual( parsed[ 4 ], [ 600, 0, 0 ], "durations at index 4" );
+		assert.deepEqual( parsed[ 5 ], [ 120, 0, 0 ], "fertigation seconds at index 5" );
 	} );
 
 	it("clamps fertigation to the station's run time on save", function () {
@@ -127,8 +127,8 @@ describe("Fertigation Program Save Checks", function () {
 
 		OSApp.Programs.submitProgram21( "0" );
 
-		var pf = decodeURIComponent( ( sent[ sent.length - 1 ].match( /[?&]pf=([^&]*)/ ) || [ , "" ] )[ 1 ] );
-		assert.equal( JSON.parse( pf )[ 0 ], 300, "fertigation clamped to the 300s run time" );
+		var v = JSON.parse( ( sent[ sent.length - 1 ].match( /[?&]v=([^&]*)/ ) || [ , "" ] )[ 1 ] );
+		assert.equal( v[ 5 ][ 0 ], 300, "fertigation clamped to the 300s run time" );
 	} );
 
 		it("omits the fertigation array entirely when the controller does not support it", function () {

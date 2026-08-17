@@ -129,8 +129,8 @@ test.describe("Fertigation, end to end", () => {
 		const NAME = "Live Editor Check";
 		await api(ctx, "dp", { pid: -1 });
 		await api(ctx, "cp", { pid: -1,
-			v: `[65,127,0,[360,-1,-1,-1],[0,600,0,0,0,0,0,0]]`, name: NAME,
-			pf: "[0,120,0,0,0,0,0,0]" });
+			v: `[65,127,0,[360,-1,-1,-1],[0,600,0,0,0,0,0,0],[0,120,0,0,0,0,0,0]]`,
+			name: NAME });
 
 		await openApp(page);
 		await page.waitForTimeout(2500);
@@ -168,9 +168,9 @@ test.describe("Fertigation, end to end", () => {
 		// Create through the API, then prove the app parses it correctly after a
 		// genuine page load. 65 = enabled + fixed start times.
 		await api(ctx, "dp", { pid: -1 });
-		const v = `[65,127,0,[360,-1,-1,-1],[600,300,0,0,0,0,0,0]]`;
-		expect((await api(ctx, "cp", { pid: -1, v, name: PROGRAM_NAME,
-			pf: "[120,60,0,0,0,0,0,0]" })).result).toBe(1);
+		// fertigation rides inside v=, right after the durations
+		const v = `[65,127,0,[360,-1,-1,-1],[600,300,0,0,0,0,0,0],[120,60,0,0,0,0,0,0]]`;
+		expect((await api(ctx, "cp", { pid: -1, v, name: PROGRAM_NAME })).result).toBe(1);
 
 		await openApp(page);
 		await page.waitForTimeout(3000);
