@@ -218,16 +218,86 @@ describe( "Fertigation Checks", function() {
 		} );
 	} );
 
+	// ---------------------------------------------------- fertigation popup
+
+	describe( "OSApp.UIDom.showFertigationInput", function() {
+		afterEach( function() {
+			$( "#fertigationInput" ).remove();
+		} );
+
+		function open( seconds, stationSeconds ) {
+			var got = null;
+			OSApp.UIDom.showFertigationInput( {
+				seconds: seconds, stationSeconds: stationSeconds,
+				callback: function( s ) { got = s; }
+			} );
+			return {
+				pct: $( "#fert-pct" ), sec: $( "#fert-sec" ),
+				submit: function() { $( "#fertigationInput input[type=submit]" ).click(); return got; }
+			};
+		}
+
+		it( "shows both percentage and seconds for an existing value", function() {
+			var p = open( 150, 600 );
+			assert.equal( p.sec.val(), "150" );
+			assert.equal( p.pct.val(), "25" );
+		} );
+
+		it( "updates seconds when the percentage is edited", function() {
+			var p = open( 0, 600 );
+			p.pct.val( 50 ).trigger( "input" );
+			assert.equal( p.sec.val(), "300", "50% of 600s = 300s" );
+		} );
+
+		it( "updates percentage when seconds are edited", function() {
+			var p = open( 0, 600 );
+			p.sec.val( 60 ).trigger( "input" );
+			assert.equal( p.pct.val(), "10", "60s of 600s = 10%" );
+		} );
+
+		it( "clamps seconds to the station run time (guardrail)", function() {
+			var p = open( 0, 300 );
+			p.sec.val( 900 ).trigger( "input" );
+			assert.equal( p.sec.val(), "300", "the seconds field snaps down to the cap" );
+			assert.equal( p.pct.val(), "100", "over-long fertigation reads as 100%" );
+			assert.equal( p.submit(), 300, "callback receives the clamped seconds" );
+		} );
+
+		it( "clamps an over-100 percentage to the station run time", function() {
+			var p = open( 0, 600 );
+			p.pct.val( 250 ).trigger( "input" );
+			assert.equal( p.pct.val(), "100", "the percentage field snaps down to 100" );
+			assert.equal( p.sec.val(), "600", "and the seconds field caps at the run time" );
+			assert.equal( p.submit(), 600, "callback receives the clamped seconds" );
+		} );
+
+		it( "leaves partial input editable rather than forcing it to zero", function() {
+			var p = open( 120, 600 );
+			p.sec.val( "" ).trigger( "input" );
+			assert.equal( p.sec.val(), "", "an emptied field is not clobbered mid-edit" );
+			assert.equal( p.pct.val(), "0", "the derived percentage reads as 0 meanwhile" );
+		} );
+
+		it( "returns seconds from the callback", function() {
+			var p = open( 0, 600 );
+			p.pct.val( 20 ).trigger( "input" );
+			assert.equal( p.submit(), 120, "20% of 600s = 120s" );
+		} );
+	} );
+
 	// -------------------------------------------------------- run-once wire
 
 	describe( "run-once fertigation parameters", function() {
-		function addRunoncePage( durations, fertPercents ) {
+		// The fertigation button now holds seconds, not a percentage -- the
+		// showFertigationInput popup does the %/seconds conversion and writes
+		// seconds back to the button.
+		function addRunoncePage( durations, fertSeconds ) {
 			var page = $( "<div id='runonce'></div>" ).appendTo( "body" );
 			durations.forEach( function( duration, index ) {
 				$( "<button></button>" ).attr( "id", "zone-" + index ).val( duration ).appendTo( page );
 			} );
-			( fertPercents || [] ).forEach( function( percent, index ) {
-				$( "<button></button>" ).attr( "id", "fert-" + index ).val( percent ).appendTo( page );
+			( fertSeconds || [] ).forEach( function( seconds, index ) {
+				$( "<button></button>" ).attr( "id", "fert-" + index ).val( seconds ).appendTo( page );
 			} );
 			$( "<input type='radio' name='wl-runonce'>" ).val( "none" ).prop( "checked", true ).appendTo( page );
 			$( "<input id='wl-custom-slider'>" ).val( 100 ).appendTo( page );
@@ -248,9 +318,8 @@ describe( "Fertigation Checks", function() {
 				.returns( $.Deferred().resolve( { result: 1 } ).promise() );
 		} );
 
-		it( "converts each percentage to seconds of the station's own duration", function() {
-			// 20% of 600s = 120s, 20% of 300s = 60s
-			addRunoncePage( [ 600, 300, 0 ], [ 20, 20, 0 ] );
+		it( "sends each station's fertigation seconds", function() {
+			addRunoncePage( [ 600, 300, 0 ], [ 120, 60, 0 ] );
 			OSApp.Stations.submitRunonce( $.Event( "click" ) );
 
 			var request = OSApp.Firmware.sendToOS.getCall( 0 ).args[ 0 ];
@@ -258,8 +327,17 @@ describe( "Fertigation Checks", function() {
 			assert.include( request, "&fd1=60" );
 		} );
 
+		it( "clamps fertigation seconds to the station's own duration", function() {
+			// 900s of fertigation on a 300s run is impossible -- cap it at 300.
+			addRunoncePage( [ 300, 0, 0 ], [ 900, 0, 0 ] );
+			OSApp.Stations.submitRunonce( $.Event( "click" ) );
+
+			var request = OSApp.Firmware.sendToOS.getCall( 0 ).args[ 0 ];
+			assert.include( request, "&fd0=300" );
+		} );
+
 		it( "omits stations with no fertigation rather than sending zeros", function() {
-			addRunoncePage( [ 600, 300, 0 ], [ 20, 0, 0 ] );
+			addRunoncePage( [ 600, 300, 0 ], [ 120, 0, 0 ] );
 			OSApp.Stations.submitRunonce( $.Event( "click" ) );
 
 			var request = OSApp.Firmware.sendToOS.getCall( 0 ).args[ 0 ];
@@ -269,8 +347,8 @@ describe( "Fertigation Checks", function() {
 		} );
 
 		it( "sends no fertigation parameters when a zone has no duration", function() {
-			// 50% of nothing is still nothing
-			addRunoncePage( [ 0, 0, 0 ], [ 50, 50, 0 ] );
+			// clamped to a zero-length run, fertigation is still nothing
+			addRunoncePage( [ 0, 0, 0 ], [ 300, 300, 0 ] );
 			OSApp.Stations.submitRunonce( $.Event( "click" ) );
 
 			var request = OSApp.Firmware.sendToOS.getCall( 0 ).args[ 0 ];

@@ -87,10 +87,11 @@ describe("Fertigation Program Save Checks", function () {
 		var page = OSApp.Programs.makeProgram21( 0, false );
 		fixture.append( page );
 
-		// operator edits: rename, keep zone 0 at 600s, set 20% fertigation on it
+		// operator edits: rename, keep zone 0 at 600s, set 120s fertigation on it
+		// (the button holds seconds; 120s of 600s is 20%)
 		fixture.find( "#name-0" ).val( "Renamed" );
 		fixture.find( "#station_0-0" ).val( 600 );
-		fixture.find( "#fert-0-0" ).val( 20 );
+		fixture.find( "#fert-0-0" ).val( 120 );
 
 		OSApp.Programs.submitProgram21( "0" );
 
@@ -111,7 +112,26 @@ describe("Fertigation Program Save Checks", function () {
 		assert.deepEqual( JSON.parse( pf ), [ 120, 0, 0 ], "fertigation seconds sent in pf" );
 	} );
 
-	it("omits the fertigation array entirely when the controller does not support it", function () {
+	it("clamps fertigation to the station's run time on save", function () {
+		var sent = [];
+		sandbox.stub( OSApp.Firmware, "sendToOS" ).callsFake( function ( dest ) {
+			if ( String( dest ).indexOf( "/cp" ) === 0 ) { sent.push( decodeURIComponent( dest ) ); }
+			return $.Deferred().resolve( { result: 1 } ).promise();
+		} );
+
+		var page = OSApp.Programs.makeProgram21( 0, false );
+		fixture.append( page );
+		// zone 0 runs 300s but someone put 900s of fertigation on it
+		fixture.find( "#station_0-0" ).val( 300 );
+		fixture.find( "#fert-0-0" ).val( 900 );
+
+		OSApp.Programs.submitProgram21( "0" );
+
+		var pf = decodeURIComponent( ( sent[ sent.length - 1 ].match( /[?&]pf=([^&]*)/ ) || [ , "" ] )[ 1 ] );
+		assert.equal( JSON.parse( pf )[ 0 ], 300, "fertigation clamped to the 300s run time" );
+	} );
+
+		it("omits the fertigation array entirely when the controller does not support it", function () {
 		// A stock/unsupported controller must not receive an empty [] the parser
 		// would walk off the end of.
 		delete OSApp.currentSession.controller.fertigation;

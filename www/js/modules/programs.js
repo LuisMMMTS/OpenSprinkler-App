@@ -348,6 +348,14 @@ OSApp.Programs.displayPageManual = function() {
 // The array itself is the reliable signal: OSApp.Supported.fertigation()
 // describes the controller, not the payload in hand, so it can disagree with
 // a program object that was cached before the controller finished loading.
+// Label for a fertigation button: shows both the percentage of the station's
+// run time and the absolute seconds, e.g. "25% / 150s".
+OSApp.Programs.fertLabel = function( seconds, stationSeconds ) {
+	seconds = parseInt( seconds, 10 ) || 0;
+	var pct = ( stationSeconds > 0 && seconds > 0 ) ? Math.round( seconds * 100 / stationSeconds ) : 0;
+	return pct + "% / " + seconds + "s";
+};
+
 // True when the program carries the fork's trailing fertigation-seconds array
 // (index 8). The stock layout has no such field, so this also distinguishes a
 // program the current controller/UI can fertigate from one it cannot.
@@ -468,7 +476,7 @@ OSApp.Programs.displayPageRunOnce = function() {
 							"<button data-mini='true' name='zone-" + i + "' id='zone-" + i + "' value='0' style='width:100%;'>0s</button>" +
 						"</span>" +
 						"<span style='display:inline-block; width:48%;'>" +
-							"<button data-mini='true' name='fert-" + i + "' id='fert-" + i + "' value='0' style='width:100%;' title='" + OSApp.Language._( "Fertigation" ) + "'>0%</button>" +
+							"<button data-mini='true' name='fert-" + i + "' id='fert-" + i + "' value='0' style='width:100%;' title='" + OSApp.Language._( "Fertigation" ) + "'>0% / 0s</button>" +
 						"</span>" +
 						"</div>";
 				} else {
@@ -688,26 +696,27 @@ OSApp.Programs.displayPageRunOnce = function() {
 			return false;
 		} );
 
-		// Handle fertigation percentage inputs for run-once programs
+		// Handle fertigation inputs for run-once programs. The button holds
+		// seconds; the popup edits percentage or seconds, clamped to the zone's
+		// own run time.
 		page.find( "[id^='fert-']" ).on( "click", function() {
 			var fert = $( this ),
-				sid = parseInt( fert.attr( "id" ).split( "-" )[ 1 ], 10 );
+				sid = parseInt( fert.attr( "id" ).split( "-" )[ 1 ], 10 ),
+				stationSeconds = parseInt( page.find( "#zone-" + sid ).val(), 10 ) || 0;
 
-			OSApp.UIDom.showSingleDurationInput( {
-				data: fert.val(),
+			OSApp.UIDom.showFertigationInput( {
+				seconds: fert.val(),
+				stationSeconds: stationSeconds,
 				title: OSApp.Stations.getName( sid ) + " - " + OSApp.Language._( "Fertigation" ),
-				label: OSApp.Language._( "Percentage" ),
-				callback: function( result ) {
-					fert.val( result );
-					fert.text( result + "%" );
-					if ( result > 0 ) {
+				callback: function( seconds ) {
+					fert.val( seconds );
+					fert.text( OSApp.Programs.fertLabel( seconds, stationSeconds ) );
+					if ( seconds > 0 ) {
 						fert.addClass( "green" );
 					} else {
 						fert.removeClass( "green" );
 					}
-				},
-				maximum: 100,
-				minimum: 0
+				}
 			} );
 
 			return false;
@@ -2557,16 +2566,13 @@ OSApp.Programs.makeProgram21 = function( n, isCopy ) {
 			time = program.stations[ j ] || 0;
 			// Zone station: duration and fertigation share one line
 			if ( fertigationSupported ) {
-				// Get fertigation value from program data if available
-				// Backend returns fertigation as array of durations in seconds at index 5
-				var fertValue = 0;
+				// The fertigation button carries seconds (the value the firmware
+				// stores) and shows both percentage and seconds. Fertigation can
+				// never exceed the station's own run time, so it is clamped here.
+				var fertSeconds = 0;
 				if ( program.fertigation && Array.isArray( program.fertigation ) && program.fertigation[ j ] !== undefined ) {
-					var fertDuration = parseInt( program.fertigation[ j ] || "0", 10 );
-					// Convert seconds to percentage based on station duration
-					if ( fertDuration > 0 && time > 0 ) {
-						fertValue = Math.round( ( fertDuration * 100 ) / time );
-						if ( fertValue > 100 ) fertValue = 100; // Cap at 100%
-					}
+					fertSeconds = parseInt( program.fertigation[ j ] || "0", 10 ) || 0;
+					if ( fertSeconds > time ) { fertSeconds = time; }
 				}
 				list += "<div class='ui-field-contain duration-input" + ( OSApp.Stations.isDisabled( j ) ? " station-hidden" + hideDisabled : "" ) + "'>" +
 					"<label for='station_" + j + "-" + id + "'>" + OSApp.Utils.htmlEscape( OSApp.Stations.getName( j ) ) + ":</label>" +
@@ -2575,8 +2581,9 @@ OSApp.Programs.makeProgram21 = function( n, isCopy ) {
 							"id='station_" + j + "-" + id + "' value='" + time + "' style='width:100%;'>" + OSApp.Dates.getDurationText( time ) + "</button>" +
 					"</span>" +
 					"<span style='display:inline-block; width:48%;'>" +
-						"<button " + ( fertValue > 0 ? "class='green' " : "" ) + "data-mini='true' name='fert-" + j + "-" + id + "' " +
-							"id='fert-" + j + "-" + id + "' value='" + fertValue + "' style='width:100%;' title='" + OSApp.Language._( "Fertigation" ) + "'>" + fertValue + "%</button>" +
+						"<button " + ( fertSeconds > 0 ? "class='green' " : "" ) + "data-mini='true' name='fert-" + j + "-" + id + "' " +
+							"id='fert-" + j + "-" + id + "' value='" + fertSeconds + "' style='width:100%;' title='" + OSApp.Language._( "Fertigation" ) + "'>" +
+							OSApp.Programs.fertLabel( fertSeconds, time ) + "</button>" +
 					"</span>" +
 					"</div>";
 			} else {
@@ -2994,30 +3001,31 @@ OSApp.Programs.makeProgram21 = function( n, isCopy ) {
 		} );
 	} );
 
-	// Handle fertigation percentage inputs for regular programs
+	// Handle fertigation inputs for regular programs. The button stores seconds;
+	// the popup lets the operator set either percentage or seconds, keeping the
+	// two in sync and clamped to the station's own run time.
 	page.find( "[id^='fert-']" ).filter( function() {
 		return $( this ).attr( "id" ).indexOf( "-" + id ) !== -1;
 	} ).on( "click", function() {
 		var fert = $( this ),
 			parts = fert.attr( "id" ).split( "-" ),
 			sid = parseInt( parts[ 1 ], 10 ),
-			name = OSApp.Stations.getName( sid );
+			name = OSApp.Stations.getName( sid ),
+			stationSeconds = parseInt( page.find( "#station_" + sid + "-" + id ).val(), 10 ) || 0;
 
-		OSApp.UIDom.showSingleDurationInput( {
-			data: fert.val(),
+		OSApp.UIDom.showFertigationInput( {
+			seconds: fert.val(),
+			stationSeconds: stationSeconds,
 			title: name + " - " + OSApp.Language._( "Fertigation" ),
-			label: OSApp.Language._( "Percentage" ),
-			callback: function( result ) {
-				fert.val( result );
-				fert.text( result + "%" );
-				if ( result > 0 ) {
+			callback: function( seconds ) {
+				fert.val( seconds );
+				fert.text( OSApp.Programs.fertLabel( seconds, stationSeconds ) );
+				if ( seconds > 0 ) {
 					fert.addClass( "green" );
 				} else {
 					fert.removeClass( "green" );
 				}
-			},
-			maximum: 100,
-			minimum: 0
+			}
 		} );
 
 		return false;
@@ -3469,13 +3477,11 @@ OSApp.Programs.submitProgram21 = function( id, ignoreWarning ) {
 	if ( OSApp.Supported.fertigation() ) {
 		var fertigationArray = [];
 		for ( i = 0; i < OSApp.currentSession.controller.stations.snames.length; i++ ) {
-			var fertPercent = parseInt( $( "#fert-" + i + "-" + id ).val() || "0", 10 ),
-				fertDuration = 0;
-
-			if ( fertPercent > 0 && runTimes[ i ] > 0 ) {
-				fertDuration = Math.round( ( runTimes[ i ] * fertPercent ) / 100 );
-			}
-			fertigationArray.push( fertDuration );
+			// The button already holds seconds. Guardrail: fertigation can never
+			// exceed the station's own run time.
+			var fertSeconds = parseInt( $( "#fert-" + i + "-" + id ).val() || "0", 10 ) || 0;
+			if ( fertSeconds > runTimes[ i ] ) { fertSeconds = runTimes[ i ]; }
+			fertigationArray.push( fertSeconds );
 		}
 		fertParam = "&pf=" + encodeURIComponent( "[" + fertigationArray.join( "," ) + "]" );
 	}

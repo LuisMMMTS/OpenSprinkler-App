@@ -123,11 +123,14 @@ test.describe("Fertigation, end to end", () => {
 		// name would come out as the fertigation array. The exact save/parse
 		// logic is asserted in the karma suite (fertigation_program_save_checks);
 		// this proves the served bundle understands the live controller's format.
+		// Put the watering and fertigation on station 1: station 0 is the master
+		// and station 7 the fertigation valve, neither of which renders a per-zone
+		// fertigation control. Only an ordinary zone shows the "% / seconds" button.
 		const NAME = "Live Editor Check";
 		await api(ctx, "dp", { pid: -1 });
 		await api(ctx, "cp", { pid: -1,
-			v: `[65,127,0,[360,-1,-1,-1],[600,0,0,0,0,0,0,0]]`, name: NAME,
-			pf: "[120,0,0,0,0,0,0,0]" });
+			v: `[65,127,0,[360,-1,-1,-1],[0,600,0,0,0,0,0,0]]`, name: NAME,
+			pf: "[0,120,0,0,0,0,0,0]" });
 
 		await openApp(page);
 		await page.waitForTimeout(2500);
@@ -145,7 +148,8 @@ test.describe("Fertigation, end to end", () => {
 			return {
 				name: $fix.find("input[id^='name-']").val() || null,
 				zoneFertCount: fertButtons.length,
-				anyPercentShown: fertButtons.some(b => /%$/.test(b.textContent.trim())),
+				// the label now shows both units, e.g. "20% / 120s"
+				anyPercentShown: fertButtons.some(b => /%\s*\/\s*\d+s$/.test(b.textContent.trim())),
 				fertValveNotWaterable: $valve.length
 					? ($valve.is(":disabled") || /fertig/i.test($valve.text()))
 					: null,
@@ -154,7 +158,7 @@ test.describe("Fertigation, end to end", () => {
 
 		expect(built.name, "editor shows the stored name from index 5").toBe(NAME);
 		expect(built.zoneFertCount, "per-zone fertigation controls are rendered").toBeGreaterThan(0);
-		expect(built.anyPercentShown, "fertigation renders as a percentage").toBe(true);
+		expect(built.anyPercentShown, "fertigation renders as percentage and seconds").toBe(true);
 		expect(built.fertValveNotWaterable, "the fertigation valve is not a waterable zone").toBeTruthy();
 
 		await api(ctx, "dp", { pid: -1 });

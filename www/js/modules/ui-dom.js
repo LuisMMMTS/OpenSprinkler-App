@@ -1499,6 +1499,63 @@ OSApp.UIDom.showSingleDurationInput = function( opt ) {
 	OSApp.UIDom.openPopup( popup );
 };
 
+// Fertigation input: percentage and seconds side by side, kept in sync. The
+// firmware stores seconds, and fertigation must never exceed the station's own
+// run time, so both fields are clamped to that (100% / stationSeconds). The
+// callback receives the value in seconds.
+OSApp.UIDom.showFertigationInput = function( opt ) {
+	$( "#fertigationInput" ).popup( "destroy" ).remove();
+	opt = $.extend( { seconds: 0, stationSeconds: 0, title: OSApp.Language._( "Fertigation" ), callback: function() {} }, opt );
+
+	var dur = parseInt( opt.stationSeconds, 10 ) || 0,
+		startSec = Math.min( parseInt( opt.seconds, 10 ) || 0, dur ),
+		startPct = dur > 0 ? Math.round( startSec * 100 / dur ) : 0;
+
+	var popup = $( "<div data-role='popup' id='fertigationInput' data-theme='a'>" +
+			"<div data-role='header' data-theme='b'><h1>" + opt.title + "</h1></div>" +
+			"<div class='ui-content'>" +
+				"<p class='rain-desc center smaller'>" +
+					OSApp.Language._( "Fertigation runs centred inside the station's watering, so it cannot exceed it" ) +
+					" (" + OSApp.Dates.dhms2str( OSApp.Dates.sec2dhms( dur ) ) + ")." + "</p>" +
+				"<label class='center'>" + OSApp.Language._( "Percentage" ) + " (%)</label>" +
+				"<input type='number' pattern='[0-9]*' id='fert-pct' value='" + startPct + "'>" +
+				"<label class='center'>" + OSApp.Language._( "Seconds" ) + "</label>" +
+				"<input type='number' pattern='[0-9]*' id='fert-sec' value='" + startSec + "'>" +
+				"<input type='submit' data-theme='b' value='" + OSApp.Language._( "Submit" ) + "'>" +
+			"</div>" +
+		"</div>" ),
+		pctIn = popup.find( "#fert-pct" ),
+		secIn = popup.find( "#fert-sec" ),
+		clampInt = function( v, max ) { v = parseInt( v, 10 ); if ( isNaN( v ) || v < 0 ) { v = 0; } return v > max ? max : v; };
+
+	// Editing one field recomputes the other; both are bounded by the station's
+	// run time so the guardrail holds no matter which field is used. An
+	// over-limit entry snaps the edited field down to the cap so the two fields
+	// never contradict each other (e.g. 9000s must not read as "100%" while the
+	// box still shows 9000); partial input is left alone so the box stays
+	// editable while typing.
+	pctIn.on( "input", function() {
+		var pct = clampInt( pctIn.val(), 100 );
+		if ( ( parseInt( pctIn.val(), 10 ) || 0 ) > 100 ) { pctIn.val( pct ); }
+		secIn.val( Math.round( dur * pct / 100 ) );
+	} );
+	secIn.on( "input", function() {
+		var sec = clampInt( secIn.val(), dur );
+		if ( ( parseInt( secIn.val(), 10 ) || 0 ) > dur ) { secIn.val( sec ); }
+		pctIn.val( dur > 0 ? Math.round( sec * 100 / dur ) : 0 );
+	} );
+
+	popup.find( "input[type='submit']" ).on( "click", function() {
+		var sec = clampInt( secIn.val(), dur );
+		secIn.val( sec );
+		pctIn.val( dur > 0 ? Math.round( sec * 100 / dur ) : 0 );
+		opt.callback( sec );
+		popup.popup( "destroy" ).remove();
+	} );
+
+	OSApp.UIDom.openPopup( popup );
+};
+
 OSApp.UIDom.showDurationBox = function( opt ) {
 	var defaults = {
 			seconds: 0,

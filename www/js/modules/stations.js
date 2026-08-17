@@ -407,17 +407,18 @@ OSApp.Stations.submitRunonce = function( runonce, interval, repeat, annotation, 
 			}
 		}
 
-		// Collect fertigation values and convert % → seconds before sending.
-		// The server (server_change_runonce) expects fd{sid}=seconds.
+		// Fertigation buttons hold seconds directly. The server
+		// (server_change_runonce) expects fd{sid}=seconds. Guardrail: fertigation
+		// can never exceed the zone's own run time.
 		if ( OSApp.Supported.fertigation() ) {
 			$( "#runonce" ).find( "[id^='fert-']" ).each( function() {
 				var fertButton = $( this ),
 					fertId = fertButton.attr( "id" ),
 					sid = parseInt( fertId.split( "-" )[ 1 ], 10 ),
-					fertPercent = parseInt( fertButton.val() || "0", 10 ),
 					stationDur = runonce[ sid ] || 0,
-					fertSeconds = Math.round( stationDur * fertPercent / 100 );
+					fertSeconds = parseInt( fertButton.val() || "0", 10 ) || 0;
 
+				if ( fertSeconds > stationDur ) { fertSeconds = stationDur; }
 				if ( !isNaN( sid ) && fertSeconds > 0 ) {
 					request += "&fd" + sid + "=" + fertSeconds;
 				}
