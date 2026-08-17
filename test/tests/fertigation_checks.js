@@ -4,31 +4,34 @@ describe( "Fertigation Checks", function() {
 	var controller;
 	var sandbox;
 
-	// A program entry as the firmware emits it once fertigation is supported:
-	// the fertigation array sits at index 5, which pushes the name to 6 and the
-	// date range to 7. Stock firmware has the name at 5 and the range at 6.
-	function newFormatProgram( opts ) {
+	// The program object is stock-compatible: name at 5, date range at 6, sensor
+	// adjustment at 7 -- exactly where the stock UI reads them. This fork appends
+	// the fertigation-seconds array as a trailing field at index 8, which the
+	// stock UI ignores. A stock program has no such trailing field.
+	function fertProgram( opts ) {
 		opts = opts || {};
 		return [
 			opts.flag === undefined ? 65 : opts.flag,
 			127, 0,
 			[ 360, -1, -1, -1 ],
 			opts.durations || [ 600, 300, 0 ],
-			opts.fertigation || [ 120, 60, 0 ],
-			opts.name === undefined ? "New Format" : opts.name,
-			opts.daterange || [ 1, 33, 415 ]
+			opts.name === undefined ? "Fert Program" : opts.name,
+			opts.daterange || [ 1, 33, 415 ],
+			{},                                    // sensor adjustment
+			opts.fertigation || [ 120, 60, 0 ]     // trailing fertigation array
 		];
 	}
 
-	function oldFormatProgram( opts ) {
+	function stockProgram( opts ) {
 		opts = opts || {};
 		return [
 			opts.flag === undefined ? 65 : opts.flag,
 			127, 0,
 			[ 360, -1, -1, -1 ],
 			opts.durations || [ 600, 300, 0 ],
-			opts.name === undefined ? "Old Format" : opts.name,
-			opts.daterange || [ 1, 33, 415 ]
+			opts.name === undefined ? "Stock Program" : opts.name,
+			opts.daterange || [ 1, 33, 415 ],
+			{}                                     // no trailing fertigation field
 		];
 	}
 
@@ -146,16 +149,9 @@ describe( "Fertigation Checks", function() {
 	// ------------------------------------------------------- payload shape
 
 	describe( "OSApp.Programs.hasFertigationArray", function() {
-		it( "detects the fertigation format from the payload, not the controller", function() {
-			assert.isTrue( OSApp.Programs.hasFertigationArray( newFormatProgram() ) );
-			assert.isFalse( OSApp.Programs.hasFertigationArray( oldFormatProgram() ) );
-		} );
-
-		it( "still detects an old-format payload while the controller supports fertigation", function() {
-			// This is the case the previous capability-based check got wrong: a
-			// program object cached before the controller finished loading.
-			assert.isTrue( OSApp.Supported.fertigation() );
-			assert.isFalse( OSApp.Programs.hasFertigationArray( oldFormatProgram() ) );
+		it( "detects the trailing fertigation array at index 8", function() {
+			assert.isTrue( OSApp.Programs.hasFertigationArray( fertProgram() ) );
+			assert.isFalse( OSApp.Programs.hasFertigationArray( stockProgram() ) );
 		} );
 
 		it( "tolerates undefined and empty entries", function() {
@@ -165,17 +161,17 @@ describe( "Fertigation Checks", function() {
 	} );
 
 	describe( "OSApp.Programs.readProgram21", function() {
-		it( "reads fertigation from 5 and the name from 6 in the new format", function() {
-			var data = OSApp.Programs.readProgram21( newFormatProgram() );
+		it( "reads the name from index 5 and fertigation from index 8", function() {
+			var data = OSApp.Programs.readProgram21( fertProgram() );
+			assert.equal( data.name, "Fert Program" );
 			assert.deepEqual( data.fertigation, [ 120, 60, 0 ] );
-			assert.equal( data.name, "New Format" );
 			assert.deepEqual( data.stations, [ 600, 300, 0 ] );
 		} );
 
-		it( "reads the name from 5 and no fertigation in the old format", function() {
-			var data = OSApp.Programs.readProgram21( oldFormatProgram() );
+		it( "reads the name from index 5 and no fertigation for a stock program", function() {
+			var data = OSApp.Programs.readProgram21( stockProgram() );
+			assert.equal( data.name, "Stock Program" );
 			assert.deepEqual( data.fertigation, [] );
-			assert.equal( data.name, "Old Format" );
 			assert.deepEqual( data.stations, [ 600, 300, 0 ] );
 		} );
 	} );
@@ -185,31 +181,27 @@ describe( "Fertigation Checks", function() {
 			sandbox.stub( OSApp.Firmware, "checkOSVersion" ).returns( true );
 		} );
 
-		it( "takes the name from index 6 in the new format", function() {
-			OSApp.currentSession.controller.programs.pd = [ newFormatProgram( { name: "Morning" } ) ];
+		it( "reads the name from index 5 whether or not fertigation is present", function() {
+			OSApp.currentSession.controller.programs.pd = [ fertProgram( { name: "Morning" } ) ];
 			assert.equal( OSApp.Programs.pidToName( 1 ), "Morning" );
-		} );
 
-		it( "takes the name from index 5 in the old format", function() {
-			OSApp.currentSession.controller.programs.pd = [ oldFormatProgram( { name: "Legacy" } ) ];
+			OSApp.currentSession.controller.programs.pd = [ stockProgram( { name: "Legacy" } ) ];
 			assert.equal( OSApp.Programs.pidToName( 1 ), "Legacy" );
 		} );
 	} );
 
 	describe( "OSApp.Dates date range indices", function() {
-		it( "reads the date range from index 7 in the new format", function() {
+		it( "reads the date range from index 6, with or without fertigation", function() {
 			OSApp.currentSession.controller.programs.pd = [
-				newFormatProgram( { daterange: [ 1, 100, 200 ] } )
+				fertProgram( { daterange: [ 1, 100, 200 ] } )
 			];
 			assert.deepEqual( OSApp.Dates.getDateRange( 0 ), [ 1, 100, 200 ] );
 			assert.equal( OSApp.Dates.isDateRangeEnabled( 0 ), 1 );
 			assert.equal( OSApp.Dates.getDateRangeStart( 0 ), 100 );
 			assert.equal( OSApp.Dates.getDateRangeEnd( 0 ), 200 );
-		} );
 
-		it( "reads the date range from index 6 in the old format", function() {
 			OSApp.currentSession.controller.programs.pd = [
-				oldFormatProgram( { daterange: [ 1, 100, 200 ] } )
+				stockProgram( { daterange: [ 1, 100, 200 ] } )
 			];
 			assert.deepEqual( OSApp.Dates.getDateRange( 0 ), [ 1, 100, 200 ] );
 			assert.equal( OSApp.Dates.getDateRangeStart( 0 ), 100 );
@@ -217,9 +209,9 @@ describe( "Fertigation Checks", function() {
 
 		it( "falls back to the full year when the range is missing", function() {
 			OSApp.currentSession.controller.programs.pd = [
-				newFormatProgram( { daterange: undefined } )
+				fertProgram( { daterange: undefined } )
 			];
-			OSApp.currentSession.controller.programs.pd[ 0 ][ 7 ] = undefined;
+			OSApp.currentSession.controller.programs.pd[ 0 ][ 6 ] = undefined;
 			assert.equal( OSApp.Dates.isDateRangeEnabled( 0 ), 0 );
 			assert.equal( OSApp.Dates.getDateRangeStart( 0 ), OSApp.Dates.Constants.minEncodedDate );
 			assert.equal( OSApp.Dates.getDateRangeEnd( 0 ), OSApp.Dates.Constants.maxEncodedDate );

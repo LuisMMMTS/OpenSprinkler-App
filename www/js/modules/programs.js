@@ -348,8 +348,11 @@ OSApp.Programs.displayPageManual = function() {
 // The array itself is the reliable signal: OSApp.Supported.fertigation()
 // describes the controller, not the payload in hand, so it can disagree with
 // a program object that was cached before the controller finished loading.
+// True when the program carries the fork's trailing fertigation-seconds array
+// (index 8). The stock layout has no such field, so this also distinguishes a
+// program the current controller/UI can fertigate from one it cannot.
 OSApp.Programs.hasFertigationArray = function( prog ) {
-	return Array.isArray( prog && prog[ 5 ] );
+	return Array.isArray( prog && prog[ 8 ] );
 };
 
 OSApp.Programs.displayPageRunOnce = function() {
@@ -1523,7 +1526,7 @@ OSApp.Programs.displayPagePreviewPrograms = function() {
 		var mt = date.getUTCMonth() + 1;
 		var yr = date.getUTCFullYear();
 
-		var dr = prog[ OSApp.Programs.hasFertigationArray( prog ) ? 7 : 6 ];
+		var dr = prog[ 6 ];
 		if ( typeof dr === "object" ) { // Daterange is available
 			if ( dr[ 0 ] ) { // Check date range if enabled
 				var currdate = ( mt << 5 ) + dt;
@@ -1976,13 +1979,11 @@ OSApp.Programs.readProgram21 = function( program ) {
 	newdata.is_odd = ( restrict === 1 ) ? true : false;
 	newdata.stations = program[ 4 ];
 
-	if ( OSApp.Programs.hasFertigationArray( program ) ) {
-		newdata.fertigation = program[ 5 ];
-		newdata.name = program[ 6 ] || "";
-	} else {
-		newdata.fertigation = [];
-		newdata.name = program[ 5 ] || "";
-	}
+	// Stock layout: name at 5, date range at 6, sensor adjustment at 7. This
+	// fork appends the fertigation seconds as a trailing field at index 8, which
+	// the stock UI ignores, so the name is always at 5 for both.
+	newdata.name = program[ 5 ] || "";
+	newdata.fertigation = Array.isArray( program[ 8 ] ) ? program[ 8 ] : [];
 
 	newdata.type = type;
 
@@ -2083,7 +2084,7 @@ OSApp.Programs.pidToName = function( pid ) {
 	} else if ( OSApp.Firmware.checkOSVersion( 210 ) && pid <= OSApp.currentSession.controller.programs.pd.length ) {
 		var prog = OSApp.currentSession.controller.programs.pd[ pid - 1 ];
 		if ( prog ) {
-			pname = ( OSApp.Programs.hasFertigationArray( prog ) ? prog[ 6 ] : prog[ 5 ] ) || pname;
+			pname = prog[ 5 ] || pname;
 		}
 	}
 
@@ -3461,13 +3462,10 @@ OSApp.Programs.submitProgram21 = function( id, ignoreWarning ) {
 	program[ 3 ] = start;
 	program[ 4 ] = runTimes;
 
-	// Fertigation durations (seconds), one per station, at index 5.
-	//
-	// Only append this when the controller supports it. Sending an empty array
-	// is not a safe "no fertigation" signal: the firmware's parser sees the '['
-	// and then consumes one character per station looking for values, running
-	// off the end of the payload. Omitting index 5 entirely is what stock
-	// firmware expects anyway.
+	// Fertigation durations go in a separate "pf" parameter, not inside v=, so
+	// v= stays byte-identical to what the stock UI sends and a stock controller
+	// simply ignores it. Only sent when the controller supports fertigation.
+	var fertParam = "";
 	if ( OSApp.Supported.fertigation() ) {
 		var fertigationArray = [];
 		for ( i = 0; i < OSApp.currentSession.controller.stations.snames.length; i++ ) {
@@ -3479,7 +3477,7 @@ OSApp.Programs.submitProgram21 = function( id, ignoreWarning ) {
 			}
 			fertigationArray.push( fertDuration );
 		}
-		program[ 5 ] = fertigationArray;
+		fertParam = "&pf=" + encodeURIComponent( "[" + fertigationArray.join( "," ) + "]" );
 	}
 
 	name = $( "#name-" + id ).val();
@@ -3502,7 +3500,7 @@ OSApp.Programs.submitProgram21 = function( id, ignoreWarning ) {
 		}
 	}
 
-	url = "&v=" + JSON.stringify( program ) + "&name=" + encodeURIComponent( name );
+	url = "&v=" + JSON.stringify( program ) + "&name=" + encodeURIComponent( name ) + fertParam;
 
     if ( OSApp.Supported.sensors() ) {
         try {

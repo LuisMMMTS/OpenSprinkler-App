@@ -4,8 +4,8 @@
 // before: the earlier suite only built program arrays by hand and read them
 // back. This renders the actual editor with makeProgram21, fills the real
 // fields, and drives submitProgram21 -- the exact code the Save button runs --
-// asserting the fertigation percentage lands as seconds in the v= array at
-// index 5 and the name is sent as the name param. A regression here is what
+// asserting the fertigation percentage lands as seconds in the pf parameter
+// and the name is sent as the name param. A regression here is what
 // makes a saved program come back with the wrong name.
 
 describe("Fertigation Program Save Checks", function () {
@@ -21,10 +21,10 @@ describe("Fertigation Program Save Checks", function () {
 				snames: [ "Zone A", "Zone B", "Fert Valve" ],
 				stn_dis: [ 0, 0, 0 ]
 			},
-			// index 5 = fertigation array, 6 = name, 7 = daterange
+			// name at 5, date range at 6, sensor adjustment at 7, fertigation at 8
 			programs: {
 				pnsize: 32,
-				pd: [ [ 65, 127, 0, [ 360, -1, -1, -1 ], [ 600, 0, 0 ], [ 0, 0, 0 ], "Original", [ 0, 33, 415 ], {} ] ]
+				pd: [ [ 65, 127, 0, [ 360, -1, -1, -1 ], [ 600, 0, 0 ], "Original", [ 0, 33, 415 ], {}, [ 0, 0, 0 ] ] ]
 			},
 			fertigation: { fert_station: 2 },
 			sensors: { sn: [] },
@@ -70,14 +70,14 @@ describe("Fertigation Program Save Checks", function () {
 			"the fertigation valve is labelled, not waterable" );
 	});
 
-	it("reads back the existing name from index 6, not the fertigation array", function () {
+	it("reads back the existing name from index 5", function () {
 		var page = OSApp.Programs.makeProgram21( 0, false );
 		fixture.append( page );
 		assert.equal( fixture.find( "#name-0" ).val(), "Original",
 			"the name field shows the stored name" );
 	});
 
-	it("saves the name and converts the fertigation percentage to seconds at index 5", function () {
+	it("saves the name in name= and the fertigation as seconds in the pf parameter", function () {
 		var sent = [];
 		sandbox.stub( OSApp.Firmware, "sendToOS" ).callsFake( function ( dest ) {
 			if ( String( dest ).indexOf( "/cp" ) === 0 ) { sent.push( decodeURIComponent( dest ) ); }
@@ -101,10 +101,14 @@ describe("Fertigation Program Save Checks", function () {
 
 		var v = ( req.match( /[?&]v=([^&]*)/ ) || [ , "" ] )[ 1 ];
 		var parsed = JSON.parse( v );
-		// v = [flag, days0, days1, [starttimes], [durations], [fertigation]]
+		// v = [flag, days0, days1, [starttimes], [durations]] -- stock-compatible,
+		// with no fertigation inside it
+		assert.equal( parsed.length, 5, "v carries no fertigation (stock-compatible)" );
 		assert.deepEqual( parsed[ 4 ], [ 600, 0, 0 ], "durations preserved at index 4" );
-		assert.equal( parsed[ 5 ][ 0 ], 120, "20% of 600s stored as 120s at index 5" );
-		assert.deepEqual( parsed[ 5 ].slice( 1 ), [ 0, 0 ], "other zones have no fertigation" );
+
+		// fertigation travels in the pf parameter; 20% of 600s = 120s
+		var pf = decodeURIComponent( ( req.match( /[?&]pf=([^&]*)/ ) || [ , "" ] )[ 1 ] );
+		assert.deepEqual( JSON.parse( pf ), [ 120, 0, 0 ], "fertigation seconds sent in pf" );
 	} );
 
 	it("omits the fertigation array entirely when the controller does not support it", function () {
@@ -125,8 +129,9 @@ describe("Fertigation Program Save Checks", function () {
 
 		OSApp.Programs.submitProgram21( "0" );
 
-		var v = ( sent[ sent.length - 1 ].match( /[?&]v=([^&]*)/ ) || [ , "" ] )[ 1 ];
-		var parsed = JSON.parse( v );
-		assert.equal( parsed.length, 5, "v has no fertigation array when unsupported" );
+		var req = sent[ sent.length - 1 ];
+		var parsed = JSON.parse( ( req.match( /[?&]v=([^&]*)/ ) || [ , "" ] )[ 1 ] );
+		assert.equal( parsed.length, 5, "v has no fertigation array" );
+		assert.isNull( req.match( /[?&]pf=/ ), "no pf parameter is sent when unsupported" );
 	} );
 } );

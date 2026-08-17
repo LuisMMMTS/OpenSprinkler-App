@@ -35,7 +35,9 @@ OSApp.Dates.getDateRange = function( pid ) {
 	}
 
 	// The fertigation array at index 5 pushes the date range from 6 to 7.
-	var dr = prog[ OSApp.Programs.hasFertigationArray( prog ) ? 7 : 6 ];
+	// name at 5, date range at 6, sensor adjustment at 7; fertigation (if any)
+	// is a trailing field at 8, so the date range index no longer shifts.
+	var dr = prog[ 6 ];
 	if ( !Array.isArray( dr ) ) {
 		return [ 0, OSApp.Dates.Constants.minEncodedDate, OSApp.Dates.Constants.maxEncodedDate ];
 	}

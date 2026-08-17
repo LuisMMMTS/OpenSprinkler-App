@@ -114,7 +114,7 @@ test.describe("Fertigation, end to end", () => {
 	// them back. That gap is exactly what let a serving problem masquerade as a
 	// working feature -- the name and fertigation only appear correct if the UI
 	// actually understands this firmware's program layout (fertigation array at
-	// index 5, name at 6). Here the editor renders, the save builds the payload,
+	// index 8, name at 5). Here the editor renders, the save builds the payload,
 	// and a reload proves the name and the fertigation percentage both survived.
 	test("the editor, built against the live controller, renders fertigation controls and the right name", async ({ page }) => {
 		// Integration guard: render the real editor against a real program on a
@@ -126,7 +126,8 @@ test.describe("Fertigation, end to end", () => {
 		const NAME = "Live Editor Check";
 		await api(ctx, "dp", { pid: -1 });
 		await api(ctx, "cp", { pid: -1,
-			v: `[65,127,0,[360,-1,-1,-1],[600,0,0,0,0,0,0,0],[120,0,0,0,0,0,0,0]]`, name: NAME });
+			v: `[65,127,0,[360,-1,-1,-1],[600,0,0,0,0,0,0,0]]`, name: NAME,
+			pf: "[120,0,0,0,0,0,0,0]" });
 
 		await openApp(page);
 		await page.waitForTimeout(2500);
@@ -151,7 +152,7 @@ test.describe("Fertigation, end to end", () => {
 			};
 		}, { fertStation: FERT_STATION });
 
-		expect(built.name, "editor shows the stored name from index 6, not the fert array").toBe(NAME);
+		expect(built.name, "editor shows the stored name from index 5").toBe(NAME);
 		expect(built.zoneFertCount, "per-zone fertigation controls are rendered").toBeGreaterThan(0);
 		expect(built.anyPercentShown, "fertigation renders as a percentage").toBe(true);
 		expect(built.fertValveNotWaterable, "the fertigation valve is not a waterable zone").toBeTruthy();
@@ -163,8 +164,9 @@ test.describe("Fertigation, end to end", () => {
 		// Create through the API, then prove the app parses it correctly after a
 		// genuine page load. 65 = enabled + fixed start times.
 		await api(ctx, "dp", { pid: -1 });
-		const v = `[65,127,0,[360,-1,-1,-1],[600,300,0,0,0,0,0,0],[120,60,0,0,0,0,0,0]]`;
-		expect((await api(ctx, "cp", { pid: -1, v, name: PROGRAM_NAME })).result).toBe(1);
+		const v = `[65,127,0,[360,-1,-1,-1],[600,300,0,0,0,0,0,0]]`;
+		expect((await api(ctx, "cp", { pid: -1, v, name: PROGRAM_NAME,
+			pf: "[120,60,0,0,0,0,0,0]" })).result).toBe(1);
 
 		await openApp(page);
 		await page.waitForTimeout(3000);
@@ -186,7 +188,7 @@ test.describe("Fertigation, end to end", () => {
 		});
 
 		expect(parsed.count).toBe(1);
-		expect(parsed.hasFertArray, "index 5 recognised as the fertigation array").toBe(true);
+		expect(parsed.hasFertArray, "trailing fertigation array at index 8 recognised").toBe(true);
 		expect(parsed.name, "name survived the reload").toBe(PROGRAM_NAME);
 		expect(parsed.pidName, "program name resolves from the shifted index").toBe(PROGRAM_NAME);
 		expect(parsed.stations[0], "zone duration in seconds").toBe(600);
