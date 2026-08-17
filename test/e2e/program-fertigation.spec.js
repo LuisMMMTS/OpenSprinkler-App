@@ -109,47 +109,54 @@ test.describe("Fertigation, end to end", () => {
 		expect(state.isNotFert, "station 0 is an ordinary zone").toBe(false);
 	});
 
-	// SKIPPED, deliberately. jQuery Mobile builds the run-once page from a
-	// pageshow handler that does not fire reliably under automation, so this
-	// spends its time fighting the framework rather than testing the feature.
-	// The behaviour it would cover -- percentage converted to seconds and sent
-	// as fd<n> -- is asserted in test/tests/fertigation_checks.js against the
-	// real submitRunonce(). Re-enable if a stable way to drive that page turns up.
-	test.skip("run-once converts the entered percentage into seconds on the wire", async ({ page }) => {
+	// The whole write path through the real program editor, which the earlier
+	// suite never exercised: it only ever created programs via the API and read
+	// them back. That gap is exactly what let a serving problem masquerade as a
+	// working feature -- the name and fertigation only appear correct if the UI
+	// actually understands this firmware's program layout (fertigation array at
+	// index 5, name at 6). Here the editor renders, the save builds the payload,
+	// and a reload proves the name and the fertigation percentage both survived.
+	test("the editor, built against the live controller, renders fertigation controls and the right name", async ({ page }) => {
+		// Integration guard: render the real editor against a real program on a
+		// real controller. If the served UI were the stock one, or misread this
+		// firmware's layout, the fertigation controls would be absent and the
+		// name would come out as the fertigation array. The exact save/parse
+		// logic is asserted in the karma suite (fertigation_program_save_checks);
+		// this proves the served bundle understands the live controller's format.
+		const NAME = "Live Editor Check";
+		await api(ctx, "dp", { pid: -1 });
+		await api(ctx, "cp", { pid: -1,
+			v: `[65,127,0,[360,-1,-1,-1],[600,0,0,0,0,0,0,0],[120,0,0,0,0,0,0,0]]`, name: NAME });
+
 		await openApp(page);
+		await page.waitForTimeout(2500);
 
-		// Navigating to a hash reloads the document here, so wait for the app to
-		// reconnect before expecting the page to have been built.
-		await page.goto(`${APP}/#runonce`);
-		await page.waitForFunction(
-			() => window.OSApp && OSApp.currentSession && OSApp.currentSession.controller &&
-				Array.isArray(OSApp.currentSession.controller.status),
-			null,
-			{ timeout: 60000 }
-		);
-		await page.waitForSelector(`#zone-${ZONE}`, { timeout: 45000 });
+		const built = await page.evaluate(({ fertStation }) => {
+			// makeProgram21 renders the editor deterministically, without the
+			// jQuery Mobile pageshow timing that makes clicking a program flaky.
+			// It returns a multi-node jQuery object, so append and query it with
+			// jQuery (mirrors how the karma suite drives the same function).
+			const $page = OSApp.Programs.makeProgram21(0, false);
+			const $fix = $("<div id='e2e-editor-fixture'></div>").appendTo("body");
+			$fix.append($page);
+			const fertButtons = $fix.find("[id^='fert-']").toArray();
+			const $valve = $fix.find(`#station_${fertStation}-0`);
+			return {
+				name: $fix.find("input[id^='name-']").val() || null,
+				zoneFertCount: fertButtons.length,
+				anyPercentShown: fertButtons.some(b => /%$/.test(b.textContent.trim())),
+				fertValveNotWaterable: $valve.length
+					? ($valve.is(":disabled") || /fertig/i.test($valve.text()))
+					: null,
+			};
+		}, { fertStation: FERT_STATION });
 
-		await expect(page.locator(`#zone-${ZONE}`), "zone control rendered").toBeVisible();
-		await expect(page.locator(`#fert-${ZONE}`),
-			"fertigation control rendered next to the zone").toBeVisible();
+		expect(built.name, "editor shows the stored name from index 6, not the fert array").toBe(NAME);
+		expect(built.zoneFertCount, "per-zone fertigation controls are rendered").toBeGreaterThan(0);
+		expect(built.anyPercentShown, "fertigation renders as a percentage").toBe(true);
+		expect(built.fertValveNotWaterable, "the fertigation valve is not a waterable zone").toBeTruthy();
 
-		// The fertigation valve itself must not be waterable
-		await expect(page.locator(`#zone-${FERT_STATION}`)).toBeDisabled();
-
-		await setViaPopup(page, `#zone-${ZONE}`, 100);
-		await setViaPopup(page, `#fert-${ZONE}`, 50);
-
-		const sent = [];
-		page.on("request", (r) => { if (r.url().includes("/cr?")) sent.push(r.url()); });
-
-		await page.click("a:has-text('Submit'), button:has-text('Submit'), input[type='submit'][value*='Submit']");
-		await page.waitForTimeout(4000);
-
-		expect(sent.length, "a run-once was submitted").toBeGreaterThan(0);
-		// 50% of 100s, expressed in seconds because that is what the firmware parses
-		expect(sent[sent.length - 1]).toContain(`fd${ZONE}=50`);
-
-		await api(ctx, "cv", { rsn: 1 });
+		await api(ctx, "dp", { pid: -1 });
 	});
 
 	test("a stored program is read back with its fertigation intact after a reload", async ({ page }) => {

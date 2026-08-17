@@ -599,15 +599,21 @@ OSApp.Options.showOptions = function( expandItem ) {
 	list += renderMasterButton( 3, "mas3", "mton3", "mtof3" );
 	list += renderMasterButton( 4, "mas4", "mton4", "mtof4" );
 
-	// Fertigation station selector, only on firmware that supports it
+	list += "</fieldset>";
+
+	// Fertigation gets its own top-level section rather than being buried inside
+	// "Configure Master": designating the fertigation valve is not a master
+	// setting, and hiding it there made it effectively impossible to find.
 	if ( OSApp.Supported.fertigation() ) {
 		var currentFertStation = OSApp.currentSession.controller.fertigation.fert_station;
 		if ( typeof currentFertStation === "undefined" ) {
 			currentFertStation = 255;
 		}
 
-		list += "<hr style='width:95%' class='content-divider'>";
-		list += "<div class='ui-field-contain ui-field-no-border'><label for='fertilizer-station-1' class='select'>" +
+		list += "<fieldset data-role='collapsible'" +
+			( typeof expandItem === "string" && expandItem === "fertigation" ? " data-collapsed='false'" : "" ) +
+			"><legend>" + OSApp.Language._( "Fertigation" ) + "</legend>";
+		list += "<div class='ui-field-contain'><label for='fertilizer-station-1' class='select'>" +
 				OSApp.Language._( "Fertigation Station" ) +
 			"</label><select data-mini='true' id='fertilizer-station-1'><option value='255'" +
 			( currentFertStation === 255 ? " selected" : "" ) + ">" + OSApp.Language._( "None" ) + "</option>";
@@ -620,9 +626,10 @@ OSApp.Options.showOptions = function( expandItem ) {
 			}
 		}
 		list += "</select></div>";
+		list += "</fieldset>";
 	}
 
-	list += "</fieldset><fieldset data-role='collapsible'" +
+	list += "<fieldset data-role='collapsible'" +
 		( typeof expandItem === "string" && expandItem === "station" ? " data-collapsed='false'" : "" ) + "><legend>" +
 		OSApp.Language._( "Station Handling" ) + "</legend>";
 
